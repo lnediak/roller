@@ -7,10 +7,45 @@ namespace roller {
 
 struct SliceDirs {
 
-  v::FVec<3> c;       /// camera
-  v::FVec<3> r, u, f; /// right, up, forward
-  float fm;           /// forward multiplier (render distance)
-  float rm, um;       /// r and u multipliers (at f dist. 1) (aspect ratio+fov)
+  v::DVec<3> c;       /// camera
+  v::DVec<3> r, u, f; /// right, up, forward
+  double fm;          /// forward multiplier (render distance)
+  double rm, um;      /// r and u multipliers (at f dist. 1) (aspect ratio+fov)
+};
+
+struct DMat3x3 {
+  v::DVec<3> a, b, c; /// rows
+
+  DMat3x3 &operator*=(double d) {
+    a *= d;
+    b *= d;
+    c *= d;
+    return *this;
+  }
+
+  v::DVec<3> operator*(const v::DVec<3> &v) const {
+    return {v::dot(a, v), v::dot(b, v), v::dot(c, v)};
+  }
+
+  DMat3x3 transpose() const {
+    return {{a[0], b[0], c[0]}, {a[1], b[1], c[1]}, {a[2], b[2], c[2]}};
+  }
+
+  double det() const {
+    return a[0] * b[1] * c[2] + a[1] * b[2] * c[0] + a[2] * b[0] * c[1] -
+           a[0] * b[2] * c[1] - a[1] * b[0] * c[2] - a[2] * b[1] * c[0];
+  }
+
+  DMat3x3 adjugate() const {
+    return {{b[1] * c[2] - b[2] * c[1], c[1] * a[2] - c[2] * a[1],
+             a[1] * b[2] - a[2] * b[1]},
+            {b[2] * c[0] - b[0] * c[2], c[2] * a[0] - c[0] * a[2],
+             a[2] * b[0] - a[0] * b[2]},
+            {b[0] * c[1] - b[1] * c[0], c[0] * a[1] - c[1] * a[0],
+             a[0] * b[1] - a[1] * b[0]}};
+  }
+
+  DMat3x3 inverse() const { return adjugate() *= (1 / det()); }
 };
 
 // ---------------------- ACTUAL UTILITY FUNCTIONS BELOW -----------------------

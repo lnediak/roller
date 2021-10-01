@@ -4,11 +4,13 @@
 #include <memory>
 #include <unordered_map>
 
+#include "vector.hpp"
+
 namespace roller {
 
 template <class TerGen> struct TerrainManager {
 
-  typedef TerGen::value_type value_type;
+  typedef typename TerGen::value_type value_type;
 
   TerGen terGen;
 
@@ -60,8 +62,7 @@ template <class TerGen> struct TerrainManager {
     // TODO: IMPLEMENT WEIRD FLOOD FILL
   };
 
-  typedef std::unordered_map<v::IVec<3>, Chunk, v::IVecHash<3>> cmap;
-  cmap chunks;
+  // TODO: CHUNK REFERENCING AND CACHING
 };
 
 } // namespace roller
