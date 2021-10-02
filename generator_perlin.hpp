@@ -57,9 +57,6 @@ template <std::size_t N> class GeneratorPerlin {
 
     value_type operator[](std::size_t i) const {
       const v::IVec<N> bits = BitsVec<N>{i};
-      /*std::cout << "YAHALLO FOLKS!!!! GETRESULT IN THE ROOM!!!" << std::endl;
-      std::cout << "i: " << i << std::endl;
-      std::cout << "posf + bits: " << (posf + bits) << std::endl;*/
       const SplitVec<N> svecs{bits, {vecs[0], vecs[1]}};
       const v::DVec<N> gvec(
           gradVecs +
@@ -101,7 +98,7 @@ public:
   }
 };
 
-} // namespace hypervoxel
+} // namespace roller
 
 #endif // GENERATOR_PERLIN_HPP_
 

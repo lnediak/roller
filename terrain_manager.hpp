@@ -19,7 +19,7 @@ namespace roller {
   getting the color of, and coordinate 0 is the least significant digit while
   coordinate 2 is the most significant digit.
 */
-template <class TerGen> struct TerrainManager {
+template <class TerGen, class Tag> struct TerrainManager {
 
   typedef typename TerGen::value_type blockdata;
 
@@ -37,6 +37,7 @@ template <class TerGen> struct TerrainManager {
     /// will backface cull, so all will be ccw.
     std::vector<float> triangles;
     bool meshed = false;
+    Tag tag;
 
   public:
     Chunk(const v::IVec<3> &coord, TerGen &terGen)
@@ -78,7 +79,6 @@ template <class TerGen> struct TerrainManager {
       triangles.push_back(*((float *)&color));
     }
 
-  public:
     /**
       dim can be 1, 2, 3, -1, -2, or -3, for +x, +y, +z, -x, -y, -z,
       respectively
@@ -116,15 +116,23 @@ template <class TerGen> struct TerrainManager {
       triPush(v, bd.getColor(bb));
     }
 
+  public:
     /**
       Only does anything if this chunk is not already meshed.
       dim can be 0, 1, or 2.
+
+      If fin: fun(tag, triangles_ptr, numFloats) will be called if meshing is
+      done. fun(tag) will be called if not. meshed will only be set if fin.
     */
-    void meshAllIfNo(const Chunk &lo, const Chunk &hi, int dim) {
+    template <class Fun>
+    void meshAllIfNo(const Chunk *lo, const Chunk *hi, int dim, Fun &&fun,
+                     bool fin) {
       if (meshed) {
+        if (fin) {
+          fun(tag);
+        }
         return;
       }
-      triangles.clear();
       int d0 = dim;
       int d1 = d0 >= 2 ? 0 : d0 + 1;
       int d2 = d1 >= 2 ? 0 : d1 + 1;
@@ -138,17 +146,17 @@ template <class TerGen> struct TerrainManager {
           v[d0]++;
           blockdata hibd = getValue(v);
           if (lobd.isAir() && !hibd.isAir()) {
-            addTriangle(v, -1 - d0);
+            addTriangle(v, hibd, -1 - d0);
           }
           lobd = hibd;
           v[d0]++;
           for (; v[d0] < scm[d0]; v[d0]++) {
             hibd = getValue(v);
             if (lobd.isAir() && !hibd.isAir()) {
-              addTriangle(v, -1 - d0);
+              addTriangle(v, hibd, -1 - d0);
             } else if (!lobd.isAir() && hibd.isAir()) {
               v[d0]--;
-              addTriangle(v, d0 + 1);
+              addTriangle(v, lobd, d0 + 1);
               v[d0]++;
             }
             lobd = hibd;
@@ -156,16 +164,15 @@ template <class TerGen> struct TerrainManager {
           hibd = hi->getValue(v);
           if (!lobd.isAir() && hibd.isAir()) {
             v[d0]--;
-            addTriangle(v, d0 + 1);
+            addTriangle(v, lobd, d0 + 1);
             v[d0]++;
           }
         }
       }
-      meshed = true;
-    }
-
-    template <class Fun> void exportTriangles(Fun &&fun) {
-      fun(&triangles[0], triangles.size());
+      if (fin) {
+        meshed = true;
+        fun(tag, (const float *)&triangles[0], triangles.size());
+      }
     }
   };
 
@@ -173,11 +180,22 @@ template <class TerGen> struct TerrainManager {
                  v::EqualFunctor<v::IVec<3>, v::IVec<3>>>
       ccache;
 
+  /// please keep ccacheSzMask a power of 2 minus 1
+  TerrainManager(TerGen &&terGen, std::size_t ccacheSzMask)
+      : terGen(std::forward<TerGen>(terGen)), ccache(ccacheSzMask) {}
+
   template <class Fun> void exportAllTriangles(const SliceDirs &sd, Fun &&fun) {
     // XXX: PROPER CHUNK-IN-VIEW CALCULATIONS
-    std::unordered_map<v::IVec<3>, Chunk *> chunks(4096);
-    v::IVec<3> mins = sdMins(sd) / CHNK_SL - 1;
-    v::IVec<3> maxs = (sdMaxs(sd) + 1) / CHNK_SL + 1;
+    std::unordered_map<v::IVec<3>, Chunk *, v::IVecHash<3>,
+                       v::EqualFunctor<v::IVec<3>, v::IVec<3>>>
+        chunks(4096);
+    v::IVec<3> mins = sdMins(sd);
+    mins /= CHNK_SL;
+    mins -= 1;
+    v::IVec<3> maxs = sdMaxs(sd);
+    maxs += 1;
+    maxs /= CHNK_SL;
+    maxs += 1;
     v::IVec<3> cc;
     for (cc[0] = mins[0]; cc[0] <= maxs[0]; cc[0]++) {
       for (cc[1] = mins[1]; cc[1] <= maxs[1]; cc[1]++) {
@@ -192,18 +210,18 @@ template <class TerGen> struct TerrainManager {
     mins += 1;
     maxs -= 1;
     for (int d0 = 0; d0 < 3; d0++) {
-      int d1 = d0 >= 2 ? 0 : d0 + 1;
+      bool fin = d0 >= 2;
+      int d1 = fin ? 0 : d0 + 1;
       int d2 = d1 >= 2 ? 0 : d1 + 1;
       for (cc[d0] = mins[d0]; cc[d0] <= maxs[d0]; cc[d0]++) {
         for (cc[d1] = mins[d1]; cc[d1] <= maxs[d1]; cc[d1]++) {
           for (cc[d2] = mins[d2]; cc[d2] <= maxs[d2]; cc[d2]++) {
             cc[d2]--;
-            const Chunk &lo = chunks[cc];
+            const Chunk *lo = chunks[cc];
             cc[d2] += 2;
-            const Chunk &hi = chunks[cc];
+            const Chunk *hi = chunks[cc];
             cc[d2]--;
-            chunks[cc].meshAllIfNo(lo, hi, d2);
-            chunks[cc].exportTriangles(fun);
+            chunks[cc]->meshAllIfNo(lo, hi, d2, fun, fin);
           }
         }
       }

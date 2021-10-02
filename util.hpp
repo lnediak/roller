@@ -11,8 +11,8 @@ struct SliceDirs {
 
   v::DVec<3> c;       /// camera
   v::DVec<3> r, u, f; /// right, up, forward
-  double fm;          /// forward multiplier (render distance)
   double rm, um;      /// r and u multipliers (at f dist. 1) (aspect ratio+fov)
+  double fm;          /// forward multiplier (render distance)
 };
 
 struct DMat3x3 {
@@ -27,6 +27,12 @@ struct DMat3x3 {
 
   v::DVec<3> operator*(const v::DVec<3> &v) const {
     return {v::dot(a, v), v::dot(b, v), v::dot(c, v)};
+  }
+
+  DMat3x3 operator*(DMat3x3 o) const {
+    o = o.transpose();
+    DMat3x3 ret = {*this * o.a, *this * o.b, *this * o.c};
+    return ret.transpose();
   }
 
   DMat3x3 transpose() const {
@@ -49,6 +55,25 @@ struct DMat3x3 {
 
   DMat3x3 inverse() const { return adjugate() *= (1 / det()); }
 };
+
+v::DVec<16> genProjMat(const SliceDirs &sd) {
+  DMat3x3 viewspan = {sd.r, sd.u, sd.f};
+  DMat3x3 toV = viewspan.transpose().inverse();
+  v::DVec<3> mC = -(toV * sd.c);
+
+  DMat3x3 a = {
+      {1 / sd.rm, 0, 0}, {0, 1 / sd.um, 0}, {0, 0, (sd.fm + 1) / (sd.fm - 1)}};
+  v::DVec<3> rh{0, 0, -2 * sd.fm / (sd.fm - 1)};
+
+  DMat3x3 aa = a * toV;
+  v::DVec<3> mmC = a * mC + rh;
+  // clang-format off
+  return { aa.a[0],  aa.a[1],  aa.a[2], mmC[0],
+           aa.b[0],  aa.b[1],  aa.b[2], mmC[1],
+           aa.c[0],  aa.c[1],  aa.c[2], mmC[2],
+          toV.c[0], toV.c[1], toV.c[2],  mC[2]};
+  // clang-format on
+}
 
 // ---------------------- ACTUAL UTILITY FUNCTIONS BELOW -----------------------
 
@@ -173,21 +198,28 @@ double sdOptimize(double c1, double c2, double c3, double rm, double um,
 
 v::IVec<3> sdMins(const SliceDirs &sd) {
   return {
-      fastFloorD(sdOptimize(sd.r[0], sd.u[0], sd.f[0], sd.rm, sd.um, sd.fm) -
+      fastFloorD(sd.c[0] +
+                 sdOptimize(sd.r[0], sd.u[0], sd.f[0], sd.rm, sd.um, sd.fm) -
                  0.0001),
-      fastFloorD(sdOptimize(sd.r[1], sd.u[1], sd.f[1], sd.rm, sd.um, sd.fm) -
+      fastFloorD(sd.c[0] +
+                 sdOptimize(sd.r[1], sd.u[1], sd.f[1], sd.rm, sd.um, sd.fm) -
                  0.0001),
-      fastFloorD(sdOptimize(sd.r[2], sd.u[2], sd.f[2], sd.rm, sd.um, sd.fm) -
+      fastFloorD(sd.c[0] +
+                 sdOptimize(sd.r[2], sd.u[2], sd.f[2], sd.rm, sd.um, sd.fm) -
                  0.0001)};
 }
 
 v::IVec<3> sdMaxs(const SliceDirs &sd) {
-  return {fastFloorD(1.0001 - sdOptimize(-sd.r[0], -sd.u[0], -sd.f[0], sd.rm,
-                                         sd.um, sd.fm)),
-          fastFloorD(1.0001 - sdOptimize(-sd.r[1], -sd.u[1], -sd.f[1], sd.rm,
-                                         sd.um, sd.fm)),
-          fastFloorD(1.0001 - sdOptimize(-sd.r[2], -sd.u[2], -sd.f[2], sd.rm,
-                                         sd.um, sd.fm))};
+  return {
+      fastFloorD(sd.c[0] -
+                 sdOptimize(-sd.r[0], -sd.u[0], -sd.f[0], sd.rm, sd.um, sd.fm) +
+                 1.0001),
+      fastFloorD(sd.c[1] -
+                 sdOptimize(-sd.r[1], -sd.u[1], -sd.f[1], sd.rm, sd.um, sd.fm) +
+                 1.0001),
+      fastFloorD(sd.c[2] -
+                 sdOptimize(-sd.r[2], -sd.u[2], -sd.f[2], sd.rm, sd.um, sd.fm) +
+                 1.0001)};
 }
 
 // ---------- NOW FOR SOME STUFF TO SUPPLEMENT VVEC ----------
