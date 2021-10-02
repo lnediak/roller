@@ -399,6 +399,7 @@ struct LerperT<N, N, I, A, B> {
   }
 };
 
+/// lerp[0] applies for least sigdig of index in vecpow, etc
 template <
     class A, class B, class = typename A::thisisavvec,
     class = typename B::thisisavvec,

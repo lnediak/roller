@@ -42,7 +42,7 @@ template <class TerGen, class Tag> struct TerrainManager {
   public:
     Chunk(const v::IVec<3> &coord, TerGen &terGen)
         : coord(coord), scoord(CHNK_SL * coord), data(new blockdata[CHNK_VL]) {
-      simpleGen(terGen);
+      genAll(terGen);
     }
     Chunk() {}
 
@@ -70,6 +70,8 @@ template <class TerGen, class Tag> struct TerrainManager {
         }
       }
     }
+
+    void genAll(TerGen &terGen) { terGen(scoord, data.get(), CHNK_SL); }
 
   private:
     void triPush(const v::IVec<3> &v, unsigned color) {

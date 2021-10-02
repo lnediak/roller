@@ -53,14 +53,22 @@ public:
 template <class U, class V, class H = std::hash<U>, class E = std::equal_to<U>>
 class HashtableCache {
 
-  typedef std::unordered_map<U, V, H, E> cmap;
+  struct Entry {
+    V v;
+    void *lp; /// pointer to value in cachequeue
+  };
+  typedef std::unordered_map<U, Entry, H, E> cmap;
   typedef typename cmap::iterator cmap_iter;
   typedef typename cmap::const_iterator cmap_const_iter;
   cmap map;
 
   struct DelCallback {
     cmap &map;
-    void operator()(const cmap_const_iter &i) noexcept { map.erase(i); }
+    void operator()(const cmap_const_iter &i) noexcept {
+      if (i != map.cend()) {
+        map.erase(i);
+      }
+    }
   };
   CacheQueue<cmap_const_iter, DelCallback> list;
 
@@ -71,25 +79,30 @@ public:
   V &operator[](const U &u) {
     auto res = map.emplace(std::piecewise_construct_t{}, std::make_tuple(u),
                            std::make_tuple());
-    if (res.second) {
-      list.push(res.first);
+    auto *lp = list.push(res.first);
+    if (!res.second) {
+      *(cmap_const_iter *)res.first->second.lp = map.cend();
     }
-    return res.first->second;
+    res.first->second.lp = lp;
+    return res.first->second.v;
   }
 
   template <class Fun> V &applyIfNew(const U &u, Fun &&fun) {
     auto res = map.emplace(std::piecewise_construct_t{}, std::make_tuple(u),
                            std::make_tuple());
+    auto *lp = list.push(res.first);
     if (res.second) {
-      list.push(res.first);
-      fun(res.first->second);
+      fun(res.first->second.v);
+    } else {
+      *(cmap_const_iter *)res.first->second.lp = map.cend();
     }
-    return res.first->second;
+    res.first->second.lp = lp;
+    return res.first->second.v;
   }
 
   V *get(const U &u) {
     auto iter = map.find(u);
-    return iter == map.end() ? nullptr : &iter->second;
+    return iter == map.end() ? nullptr : &iter->second.v;
   }
 };
 

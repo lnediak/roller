@@ -38,13 +38,10 @@ int main() {
   cacher[3].i = 4;
   std::cout << !!cacher.get(-1) << " " << !!cacher.get(-2) << " "
             << !!cacher.get(-3) << " " << !!cacher.get(-4) << std::endl;
-  cacher[4].i = 5;
-  std::cout << !!cacher.get(-1) << " " << !!cacher.get(-2) << " "
-            << !!cacher.get(-3) << " " << !!cacher.get(-4) << std::endl;
 
-  std::cout << cacher[1] << " " << cacher[2] << " " << cacher[3] << " "
-            << cacher[4] << std::endl;
+  /*std::cout << cacher[1] << " " << cacher[2] << " " << cacher[3] << " "
+            << cacher[4] << std::endl;*/
   std::cout << *cacher.get(1) << " " << *cacher.get(2) << " " << *cacher.get(3)
-            << " " << *cacher.get(4) << std::endl;
+            << " " << std::endl;
 }
 
