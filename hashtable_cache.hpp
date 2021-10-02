@@ -69,9 +69,20 @@ public:
       : map(3 * maxSzMask / 2), list(maxSzMask, {map}) {}
 
   V &operator[](const U &u) {
-    auto res = map.emplace(u, V{});
+    auto res = map.emplace(std::piecewise_construct_t{}, std::make_tuple(u),
+                           std::make_tuple());
     if (res.second) {
       list.push(res.first);
+    }
+    return res.first->second;
+  }
+
+  template <class Fun> V &applyIfNew(const U &u, Fun &&fun) {
+    auto res = map.emplace(std::piecewise_construct_t{}, std::make_tuple(u),
+                           std::make_tuple());
+    if (res.second) {
+      list.push(res.first);
+      fun(res.first->second);
     }
     return res.first->second;
   }
