@@ -16,7 +16,7 @@ std::ostream &operator<<(std::ostream &os, const A &a) {
 }
 
 int main() {
-  roller::HashtableCache<int, A> cacher(3);
+  roller::HashtableCache<int, A> cacher(4);
   cacher[-1].i = 1;
   cacher[-2].i = 2;
   cacher[-3].i = 3;

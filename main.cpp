@@ -49,7 +49,7 @@ int main() {
                           {0.8018, 0.5864, 0.1155},
                           1.5,
                           1.5,
-                          196};
+                          128};
   const std::size_t numGradVecs = 4096;
   roller::TerrainManager<
       roller::BoolTerrainGenerator<roller::GeneratorPerlin<3>>, GLMesh>

@@ -6,47 +6,38 @@
 #include <unordered_map>
 #include <utility>
 
+#include "pool_linked_list.hpp"
+
 namespace roller {
 
 template <class T> struct NoOpFunctor {
-  void operator()(T *) const noexcept {}
+  void operator()(T) const noexcept {}
 };
 
-/**
-  A weird queue (that doesn't have a pop operation) that deletes an element for
-  every push after a certain size, and calls a callback each time that is done.
-  `maxSzMask` needs to be a power of two minus 1.
-*/
-template <class T, class F = NoOpFunctor<T>> class CacheQueue {
+template <class T, class Fun> struct Cacher {
 
-  std::unique_ptr<T[]> data;
-  /**
-    lower `index` means newer, and the idem at `index` is stored at
-    `data[(i + index) & maxSzMask]`. sz is current size.
-  */
-  std::size_t i, sz, maxSzMask;
+  PoolLinkedList<T> list;
+  typedef typename decltype(list)::Node lnode;
+  std::size_t sz, maxSz;
 
-  F fun;
+  Fun fun;
 
-public:
-  CacheQueue(std::size_t maxSzMask, const F &fun)
-      : data(new T[maxSzMask + 1]), i(0), sz(0), maxSzMask(maxSzMask),
-        fun(fun) {}
-  explicit CacheQueue(std::size_t maxSzMask)
-      : data(new T[maxSzMask + 1]), i(0), sz(0), maxSzMask(maxSzMask), fun() {}
-  CacheQueue() : data(new T[8]), i(0), sz(0), maxSzMask(7), fun() {}
+  Cacher(std::size_t maxSize, Fun &&fun)
+      : list(maxSize), sz(0), maxSz(maxSize), fun(fun) {}
 
-  void clear() { i = sz = 0; }
-
-  T *push(const T &t) {
-    i = (i - 1) & maxSzMask;
-    if (sz > maxSzMask) {
-      fun(data[i]);
+  lnode *push(const T &t) {
+    if (sz >= maxSz) {
+      fun(list.back()->obj);
+      list.removeFromEnd();
     } else {
       sz++;
     }
-    data[i] = t;
-    return &data[i];
+    return list.addToBeg(t);
+  }
+  void refresh(lnode *p) {
+    T obj = p->obj;
+    list.remove(p);
+    list.addToBeg(obj);
   }
 };
 
@@ -55,7 +46,7 @@ class HashtableCache {
 
   struct Entry {
     V v;
-    void *lp; /// pointer to value in cachequeue
+    void *lp; /// pointer to node in list
   };
   typedef std::unordered_map<U, Entry, H, E> cmap;
   typedef typename cmap::iterator cmap_iter;
@@ -64,41 +55,26 @@ class HashtableCache {
 
   struct DelCallback {
     cmap &map;
-    void operator()(const cmap_const_iter &i) noexcept {
-      if (i != map.cend()) {
-        map.erase(i);
-      }
-    }
+    void operator()(const cmap_const_iter &i) noexcept { map.erase(i); }
   };
-  CacheQueue<cmap_const_iter, DelCallback> list;
+  Cacher<cmap_const_iter, DelCallback> list;
 
 public:
-  HashtableCache(std::size_t maxSzMask)
-      : map(3 * maxSzMask / 2), list(maxSzMask, {map}) {}
-
-  V &operator[](const U &u) {
-    auto res = map.emplace(std::piecewise_construct_t{}, std::make_tuple(u),
-                           std::make_tuple());
-    auto *lp = list.push(res.first);
-    if (!res.second) {
-      *(cmap_const_iter *)res.first->second.lp = map.cend();
-    }
-    res.first->second.lp = lp;
-    return res.first->second.v;
-  }
+  HashtableCache(std::size_t maxSz) : map(3 * maxSz / 2), list(maxSz, {map}) {}
 
   template <class Fun> V &applyIfNew(const U &u, Fun &&fun) {
     auto res = map.emplace(std::piecewise_construct_t{}, std::make_tuple(u),
                            std::make_tuple());
-    auto *lp = list.push(res.first);
     if (res.second) {
+      res.first->second.lp = list.push(res.first);
       fun(res.first->second.v);
     } else {
-      *(cmap_const_iter *)res.first->second.lp = map.cend();
+      list.refresh((typename decltype(list)::lnode *)res.first->second.lp);
     }
-    res.first->second.lp = lp;
     return res.first->second.v;
   }
+
+  V &operator[](const U &u) { return applyIfNew(u, NoOpFunctor<const V &>{}); }
 
   V *get(const U &u) {
     auto iter = map.find(u);
