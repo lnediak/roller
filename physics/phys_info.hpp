@@ -17,10 +17,12 @@ struct AuxPhysInfo {
 
 struct PhysInfo {
   Pose pose;
-  v::DVec<3> lm, am; /// linear momentum, angular momentum
+  v::DVec<3> lm{0, 0, 0}, am{0, 0, 0}; /// linear momentum, angular momentum
 
-  double massi;  /// 1 / mass
-  DMat3x3 ineri; /// I^{-1}
+  double massi = 0;                               /// 1 / mass
+  DMat3x3 ineri{{0, 0, 0}, {0, 0, 0}, {0, 0, 0}}; /// I^{-1}
+
+  PhysInfo(double massi, const DMat3x3 &ineri) : massi(massi), ineri(ineri) {}
 
   AuxPhysInfo getAuxInfo() const {
     AuxPhysInfo ret;
@@ -43,78 +45,137 @@ struct AABB {
 };
 
 struct OBB {
-  v::DVec<3> b, x, y, z; /// basically b+gx+hy+iz where 0<=g,h,i<=1
+  v::DVec<3> b, s, x, y, z; /// basically b+gx+hy+iz where 0<=g,h,i<=s
   v::DVec<3> a, c;
 
-  OBB(const v::DVec<3> &b, const v::DVec<3> &x, const v::DVec<3> &y,
-      const v::DVec<3> &z)
-      : b(b), x(x), y(y), z(z), a{v::dot(b, x), v::dot(b, y), v::dot(b, z)},
-        c(a + 1) {}
+  OBB(const v::DVec<3> &b, const v::DVec<3> &s, const v::DVec<3> &x,
+      const v::DVec<3> &y, const v::DVec<3> &z)
+      : b(b), s(s), x(x), y(y),
+        z(z), a{v::dot(b, x), v::dot(b, y), v::dot(b, z)}, c(a + s) {}
 
   AABB getAABB() const {
     // could use extrema below, but unnecessary multiplications
     AABB ret{{b, b}};
     if (x[0] > 0) {
-      ret.m[1][0] += x[0];
+      ret.m[1][0] += s[0] * x[0];
     } else {
-      ret.m[0][0] += x[0];
+      ret.m[0][0] += s[0] * x[0];
     }
     if (y[0] > 0) {
-      ret.m[1][0] += y[0];
+      ret.m[1][0] += s[1] * y[0];
     } else {
-      ret.m[0][0] += y[0];
+      ret.m[0][0] += s[1] * y[0];
     }
     if (z[0] > 0) {
-      ret.m[1][0] += z[0];
+      ret.m[1][0] += s[2] * z[0];
     } else {
-      ret.m[0][0] += z[0];
+      ret.m[0][0] += s[2] * z[0];
     }
     return ret;
   }
+};
 
-  /// minimum and maximum of u dot v, where v is a point in the OBB
-  v::DVec<2> extrema(const v::DVec<3> &u) const {
-    double s = v::dot(u, b);
-    double a = 0, b = 0;
-    double t;
-    if ((t = v::dot(u, x)) > 0) {
-      b += t;
-    } else {
-      a += t;
-    }
-    if ((t = v::dot(u, y)) > 0) {
-      b += t;
-    } else {
-      a += t;
-    }
-    if ((t = v::dot(u, z)) > 0) {
-      b += t;
-    } else {
-      a += t;
-    }
-    return {a, b};
+struct Contact {
+  double dist;
+  v::DVec<3> p, n;
+};
+
+struct OBBIntersector {
+  v::DVec<3> wor[2][3];
+  v::DVec<3> rel[2][3];
+
+  v::DVec<3> min[2], max[2];
+
+  OBBIntersector(const OBB &p, const OBB &q)
+      : wor{{p.x, p.y, p.z}, {q.x, q.y, q.z}} {
+    DMat3x3 relm = DMat3x3{p.x, p.y, p.z} * DMat3x3{q.x, q.y, q.z}.transpose();
+    rel[1][0] = relm.a;
+    rel[1][1] = relm.b;
+    rel[1][2] = relm.c;
+    relm = relm.transpose();
+    rel[0][0] = relm.a;
+    rel[0][1] = relm.b;
+    rel[0][2] = relm.c;
   }
 
-  bool intersects0(const OBB &o) const {
-    v::DVec<2> tx = o.extrema(x);
-    if (tx[0] > c[0] || tx[1] < a[0]) {
-      return false;
-    }
-    v::DVec<2> ty = o.extrema(y);
-    if (ty[0] > c[1] || ty[1] < a[1]) {
-      return false;
-    }
-    v::DVec<2> tz = o.extrema(z);
-    if (tz[0] > c[2] || tz[1] < a[2]) {
-      return false;
-    }
-    return true;
+  void initInt(const OBB &p, const OBB &q) {
+    min[0] = p.a;
+    min[1] = q.a;
+    max[0] = p.c;
+    max[1] = q.c;
   }
-  bool intersects(const OBB &o) const {
-    return intersects0(o) || o.intersects0(*this);
+
+  void upDown0(double &lo, double &hi, double a) const {
+    if (a > 0) {
+      hi += a;
+    } else {
+      lo += a;
+    }
+  }
+  void upDown03(double &lo, double &hi, double a, double b, double c) const {
+    upDown0(lo, hi, a);
+    upDown0(lo, hi, b);
+    upDown0(lo, hi, c);
+  }
+  void upv0(v::DVec<3> &hi, int w, int d, double a) const {
+    if (a > 0) {
+      hi += max[w][d] * wor[w][d];
+    } else {
+      hi += min[w][d] * wor[w][d];
+    }
+  }
+  void upv03(v::DVec<3> &hi, int w, double a, double b, double c) const {
+    hi = 0;
+    upv0(hi, w, 0, a);
+    upv0(hi, w, 1, b);
+    upv0(hi, w, 2, c);
+  }
+  void downv0(v::DVec<3> &lo, int w, int d, double a) const {
+    if (a > 0) {
+      lo += min[w][d] * wor[w][d];
+    } else {
+      lo += max[w][d] * wor[w][d];
+    }
+  }
+  void downv03(v::DVec<3> &lo, int w, double a, double b, double c) const {
+    lo = 0;
+    downv0(lo, w, 0, a);
+    downv0(lo, w, 1, b);
+    downv0(lo, w, 2, c);
+  }
+
+  /// w: 0 or 1; d: 0, 1, or 2
+  Contact distByFace(int w, int d) const {
+    double melo = m[w][d];
+    double mehi = x[w][d];
+    double yulo, yuhi;
+    double a = rel[w][0][d], b = rel[w][1][d], c = rel[w][2][d];
+    upDown03(yulo, yuhi, a, b, c);
+
+    double forP = yuhi - melo;
+    double bakP = yulo - mehi;
+    if (forP < 0 && bakP < 0) {
+      if (forP > bakP) {
+        v::DVec<3> hi;
+        upv03(hi, w, a, b, c);
+        return {forP, hi, wor[w][d]};
+      } else {
+        v::DVec<3> lo;
+        downv03(lo, w, a, b, c);
+        return {bakP, lo, -wor[w][d]};
+      }
+    }
+    Contact c;
+    c.dist = forP > bakP ? bakP : forP;
+    return c;
+  }
+  /// d0, d1: 0, 1, or 2
+  Contact distByEE(int d0, int d1) const {
+    //
   }
 };
 
+/// basically handles broad-phase
 template <class W> class World {
 
   struct IP {
@@ -141,7 +202,7 @@ template <class W> class World {
   // AABB stuff
   std::size_t numObjs;
   std::vector<int> xsort, ysort, zsort; /// each is 2 * obj_ind + (is AABB max)
-  std::unordered_set<IP, IPHash, IPEq> aabbCol; /// collisions of AABBs
+  std::unordered_set<IP, IPHash, IPEq> aabbInts; /// pairs of intersecting AABBs
 
   void initAABBStuff() {
     numObjs = w.numObjects();
@@ -181,8 +242,8 @@ template <class W> class World {
     std::sort(zsort.beg(), zsort.end(), cmp);
     // and sweep! (not most efficient lol)
     std::size_t bloat = 3 * numObjs / 2;
-    decltype(aabbCol) tmpx(bloat), tmpy(bloat);
-    aabbCol.reserve(bloat);
+    decltype(aabbInts) tmpx(bloat), tmpy(bloat);
+    aabbInts.reserve(bloat);
     std::unordered_set<int> active(bloat);
     for (int i : xsort) {
       if (i & 1) {
@@ -215,7 +276,7 @@ template <class W> class World {
         int ii = i / 2;
         for (int j : active) {
           if (tmpy.count({i, j})) {
-            aabbCol.insert({i, j});
+            aabbInts.insert({i, j});
           }
         }
         active.insert(i / 2);
@@ -225,7 +286,6 @@ template <class W> class World {
 
   World(W &&w) : w(w) { initAABBStuff(); }
 
-  // TODO: PROOFREAD PLZ
   std::vector<AABB> tmp;
   void updateAABBStuff0(std::vector<int> &dsort, std::size_t d) {
     int rpi = dsort[0]; // real previous index
@@ -246,9 +306,9 @@ template <class W> class World {
       do {
         if ((tci & 1) != (tpi & 1)) {
           if (tmp[tpi / 2].intersects(tmp[tci / 2])) {
-            aabbCols.insert({tpi / 2, tci / 2});
+            aabbInts.insert({tpi / 2, tci / 2});
           } else {
-            aabbCols.erase({tpi / 2, tci / 2});
+            aabbInts.erase({tpi / 2, tci / 2});
           }
         }
         dsort[cind] = tpi;
@@ -282,6 +342,14 @@ template <class W> class World {
     updateAABBStuff0(xsort, 0);
     updateAABBStuff0(ysort, 1);
     updateAABBStuff0(zsort, 2);
+  }
+
+  /// calls fun(obj1, obj2) for all obj1 and obj2 with intersecting AABBs
+  template <class Fun> void exportAllAABBInts(Fun &&fun) {
+    updateAABBStuff();
+    for (IP ip : aabbInts) {
+      fun(w.getObj(ip.i), w.getObj(ip.j));
+    }
   }
 };
 

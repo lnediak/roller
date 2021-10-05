@@ -17,8 +17,8 @@ v::DVec<4> quaternionMult(const v::DVec<4> &a, const v::DVec<4> &b) {
 
 struct Pose {
 
-  v::DVec<3> p; /// translation
-  v::DVec<4> q; /// rotation
+  v::DVec<3> p{0, 0, 0};    /// translation
+  v::DVec<4> q{1, 0, 0, 0}; /// rotation
 
   DMat3x3 toRotationMatrix() const {
     double x2 = 2 * q[1] * q[1];
