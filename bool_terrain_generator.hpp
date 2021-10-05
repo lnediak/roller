@@ -52,10 +52,13 @@ template <class FTerGen> struct BoolTerrainGenerator {
     double s = 1. / sl;
     v::DVec<3> v;
     std::size_t ind = 0;
+    v::DVec<3> lerp;
     for (v[0] = 0; v[0] < 0.9999; v[0] += s) {
+      lerp[0] = v[0] * v[0] * (3 - 2 * v[0]);
       for (v[1] = 0; v[1] < 0.9999; v[1] += s) {
+        lerp[1] = v[1] * v[1] * (3 - 2 * v[1]);
         for (v[2] = 0; v[2] < 0.9999; v[2] += s, ind++) {
-          v::DVec<3> lerp = v * v * (3 - 2 * v);
+          lerp[2] = v[2] * v[2] * (3 - 2 * v[2]);
           data[ind] = {vlerpAll(vecpow, lerp) > 0};
         }
       }
