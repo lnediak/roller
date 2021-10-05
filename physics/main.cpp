@@ -7,10 +7,6 @@
 #define GLAD_GL_IMPLEMENTATION
 #include "gl_program.hpp"
 
-#include "bool_terrain_generator.hpp"
-#include "generator_perlin.hpp"
-#include "terrain_manager.hpp"
-
 namespace {
 
 void errCallback(int, const char *err) { std::cerr << err << std::endl; }
@@ -50,15 +46,7 @@ int main() {
                           1.5,
                           1.5,
                           128};
-  const std::size_t numGradVecs = 4096;
-  roller::TerrainManager<
-      roller::BoolTerrainGenerator<roller::GeneratorPerlin<3>>, GLMesh>
-      terrainManager({{{{64, 64, 64},
-                        roller::getGradVecs(numGradVecs, 3, 1),
-                        numGradVecs - 1,
-                        3,
-                        0.5}}},
-                     8191);
+  // TODO: INITIALIZE OBJECTS
 
   GLProgram prog;
   prog.compileProgram();
@@ -71,10 +59,8 @@ int main() {
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     glfwPollEvents();
 
-    // std::cout << "NEW FRAME" << std::endl << std::endl << std::endl <<
-    // std::endl << std::endl;
-
-    terrainManager.exportAllTriangles(sd, fun);
+    // TODO: replace objects with actual objects
+    objects.exportAllTriangles(sd, fun);
     fun.renderAll();
     fun.clear();
 
@@ -82,9 +68,6 @@ int main() {
     if (err) {
       std::cout << "OpenGL Error: " << err << std::endl;
     }
-
-    sd.c += 0.2;
-    // sd.c[2] -= 0.01;
 
     auto dur = std::chrono::high_resolution_clock::now() - beg;
     double secs =

@@ -187,6 +187,8 @@ template <class TerGen, class Tag> struct TerrainManager {
       : terGen(std::forward<TerGen>(terGen)), ccache(ccacheSzMask) {}
 
   template <class Fun> void exportAllTriangles(const SliceDirs &sd, Fun &&fun) {
+    v::DVec<16> projMat = genProjMat(sd);
+    fun(&projMat[0]);
     // XXX: PROPER CHUNK-IN-VIEW CALCULATIONS
     std::unordered_map<v::IVec<3>, Chunk *, v::IVecHash<3>,
                        v::EqualFunctor<v::IVec<3>, v::IVec<3>>>

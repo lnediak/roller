@@ -56,9 +56,25 @@ struct DMat3x3 {
   DMat3x3 inverse() const { return adjugate() *= (1 / det()); }
 };
 
+v::DVec<16> matMult4x4(const v::DVec<16> &a, const v::DVec<16> &b) {
+  v::DVec<4> a0{a[0], a[1], a[2], a[3]};
+  v::DVec<4> a1{a[4], a[5], a[6], a[7]};
+  v::DVec<4> a2{a[8], a[9], a[10], a[11]};
+  v::DVec<4> a3{a[12], a[13], a[14], a[15]};
+
+  v::DVec<4> b0{b[0], b[4], b[8], b[12]};
+  v::DVec<4> b1{b[1], b[5], b[9], b[13]};
+  v::DVec<4> b2{b[2], b[6], b[10], b[14]};
+  v::DVec<4> b3{b[3], b[7], b[11], b[15]};
+
+  return {v::dot(a0, b0), v::dot(a0, b1), v::dot(a0, b2), v::dot(a0, b3),
+          v::dot(a1, b0), v::dot(a1, b1), v::dot(a1, b2), v::dot(a1, b3),
+          v::dot(a2, b0), v::dot(a2, b1), v::dot(a2, b2), v::dot(a2, b3),
+          v::dot(a3, b0), v::dot(a3, b1), v::dot(a3, b2), v::dot(a3, b3)};
+}
+
 v::DVec<16> genProjMat(const SliceDirs &sd) {
-  DMat3x3 viewspan = {sd.r, sd.u, sd.f};
-  DMat3x3 toV = viewspan.transpose().inverse();
+  DMat3x3 toV = {sd.r, sd.u, sd.f};
   v::DVec<3> mC = -(toV * sd.c);
 
   DMat3x3 a = {

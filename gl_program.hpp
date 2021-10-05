@@ -3,78 +3,11 @@
 
 #include "glad/gl.h"
 
+#include <cstring>
 #include <iostream>
 #include <stdexcept>
 #include <string>
 #include <vector>
-
-struct GLMesh {
-
-  GLuint vao;
-  GLuint buf;
-  std::size_t nm = 0;
-
-  GLMesh() : vao(0), buf(0) {}
-  explicit GLMesh(int) {
-    glGenVertexArrays(1, &vao);
-    glBindVertexArray(vao);
-    glGenBuffers(1, &buf);
-  }
-  GLMesh(const GLMesh &) = delete;
-  GLMesh(GLMesh &&other) : vao(other.vao), buf(other.buf), nm(other.nm) {
-    other.vao = 0;
-    other.buf = 0;
-  }
-  GLMesh &operator=(const GLMesh &) = delete;
-  GLMesh &operator=(GLMesh &&other) {
-    if (vao != other.vao) {
-      this->~GLMesh();
-      vao = other.vao;
-      buf = other.buf;
-      nm = other.nm;
-    }
-    other.vao = 0;
-    other.buf = 0;
-    return *this;
-  }
-  ~GLMesh() {
-    if (vao) {
-      glDeleteVertexArrays(1, &vao);
-    }
-    if (buf) {
-      glDeleteBuffers(1, &buf);
-    }
-  }
-};
-
-struct GLTrianglesRecorder {
-
-  std::vector<GLMesh *> meshes;
-  GLuint posLoc, colLoc;
-
-  void operator()(GLMesh &tag, const float *triangles, std::size_t sz) {
-    tag.~GLMesh();
-    new (&tag) GLMesh(0);
-    tag.nm = sz / 4;
-    meshes.push_back(&tag);
-    glBindBuffer(GL_ARRAY_BUFFER, tag.buf);
-    glBufferData(GL_ARRAY_BUFFER, sz * sizeof(float), triangles,
-                 GL_STATIC_DRAW);
-    glVertexAttribPointer(posLoc, 3, GL_FLOAT, GL_FALSE, 4 * sizeof(float), 0);
-    glVertexAttribIPointer(colLoc, 1, GL_UNSIGNED_INT, 4 * sizeof(float),
-                           (void *)(3 * sizeof(float)));
-    glEnableVertexAttribArray(posLoc);
-    glEnableVertexAttribArray(colLoc);
-  }
-  void operator()(GLMesh &tag) { meshes.push_back(&tag); }
-
-  void renderAll() const {
-    for (GLMesh *m : meshes) {
-      glBindVertexArray(m->vao);
-      glDrawArrays(GL_TRIANGLES, 0, m->nm);
-    }
-  }
-};
 
 struct GLProgram {
 
@@ -162,16 +95,12 @@ struct GLProgram {
   }
 
   /// row-major please
-  void setProjMat(double *p) {
+  void setProjMat(const double *p) {
     GLfloat mat[16];
     for (int i = 0; i < 16; i++) {
       mat[i] = p[i];
     }
     glUniformMatrix4fv(projMatLoc, 1, GL_TRUE, mat);
-  }
-
-  GLTrianglesRecorder makeTriangleRecorder() const {
-    return {{}, posLoc, colLoc};
   }
 
 private:
@@ -202,6 +131,116 @@ private:
                                "Failed to compile shader. Source:\n" + src);
     }
     return shad;
+  }
+};
+
+struct GLMesh {
+
+  GLuint vao;
+  GLuint buf;
+  std::size_t nm = 0;
+
+  GLMesh() : vao(0), buf(0) {}
+  explicit GLMesh(int) {
+    glGenVertexArrays(1, &vao);
+    glBindVertexArray(vao);
+    glGenBuffers(1, &buf);
+  }
+  GLMesh(const GLMesh &) = delete;
+  GLMesh(GLMesh &&other) : vao(other.vao), buf(other.buf), nm(other.nm) {
+    other.vao = 0;
+    other.buf = 0;
+  }
+  GLMesh &operator=(const GLMesh &) = delete;
+  GLMesh &operator=(GLMesh &&other) {
+    if (vao != other.vao) {
+      this->~GLMesh();
+      vao = other.vao;
+      buf = other.buf;
+      nm = other.nm;
+    }
+    other.vao = 0;
+    other.buf = 0;
+    return *this;
+  }
+
+  operator bool() const { return !!vao; }
+
+  ~GLMesh() {
+    if (buf) {
+      glDeleteBuffers(1, &buf);
+    }
+    if (vao) {
+      glDeleteVertexArrays(1, &vao);
+    }
+  }
+};
+
+struct GLTrianglesRecorder {
+
+  struct Action {
+    bool isMesh;
+    union {
+      GLMesh *mesh;
+      double projMat[16];
+    };
+  };
+  std::vector<Action> meshes;
+  GLProgram &prog;
+
+  GLTrianglesRecorder(GLProgram &prog) : prog(prog) {}
+
+  void clear() { meshes.clear(); }
+
+  void operator()(GLMesh &tag, const float *triangles, std::size_t sz) {
+    if (!sz) {
+      tag.~GLMesh();
+      new (&tag) GLMesh();
+      return;
+    }
+    if (!tag) {
+      tag.~GLMesh();
+      new (&tag) GLMesh(0);
+    }
+    Action act;
+    act.isMesh = true;
+    act.mesh = &tag;
+    meshes.push_back(act);
+    tag.nm = sz / 4;
+    glBindBuffer(GL_ARRAY_BUFFER, tag.buf);
+    glBufferData(GL_ARRAY_BUFFER, sz * sizeof(float), triangles,
+                 GL_STATIC_DRAW);
+    glVertexAttribPointer(prog.posLoc, 3, GL_FLOAT, GL_FALSE, 4 * sizeof(float),
+                          0);
+    glVertexAttribIPointer(prog.colLoc, 1, GL_UNSIGNED_INT, 4 * sizeof(float),
+                           (void *)(3 * sizeof(float)));
+    glEnableVertexAttribArray(prog.posLoc);
+    glEnableVertexAttribArray(prog.colLoc);
+  }
+  void operator()(GLMesh &tag) {
+    if (tag) {
+      Action act;
+      act.isMesh = true;
+      act.mesh = &tag;
+      meshes.push_back(act);
+    }
+  }
+  void operator()(const double *projMat) {
+    Action act;
+    act.isMesh = false;
+    std::memcpy(act.projMat, projMat, 16 * sizeof(double));
+    meshes.push_back(act);
+  }
+
+  void renderAll() const {
+    for (const Action &a : meshes) {
+      if (a.isMesh) {
+        glBindVertexArray(a.mesh->vao);
+        glDrawArrays(GL_TRIANGLES, 0, a.mesh->nm);
+      } else {
+        prog.setProjMat(a.projMat);
+      }
+    }
   }
 };
 
