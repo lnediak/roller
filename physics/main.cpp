@@ -7,6 +7,8 @@
 #define GLAD_GL_IMPLEMENTATION
 #include "gl_program.hpp"
 
+#include "prism.hpp"
+
 namespace {
 
 void errCallback(int, const char *err) { std::cerr << err << std::endl; }
@@ -39,14 +41,11 @@ int main() {
   glCullFace(GL_BACK);
   glFrontFace(GL_CCW);
 
-  roller::SliceDirs sd = {{0, 0, 0},
-                          {0.2673, -0.5246, 0.8083},
-                          {-0.5345, 0.6172, 0.5774},
-                          {0.8018, 0.5864, 0.1155},
-                          1.5,
-                          1.5,
-                          128};
-  // TODO: INITIALIZE OBJECTS
+  roller::SliceDirs sd = {{0, 0, 0}, {1, 0, 0}, {0, 0, 1}, {0, 1, 0},
+                          1.5,       1.5,       128};
+  roller::Prism<GLMesh> prism({1, 2, 1});
+  prism.pi.pose.p = {0, 4, 0};
+  prism.pi.pose.q = {0, 0.9659, 0.2588, 0};
 
   GLProgram prog;
   prog.compileProgram();
@@ -59,8 +58,7 @@ int main() {
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     glfwPollEvents();
 
-    // TODO: replace objects with actual objects
-    objects.exportAllTriangles(sd, fun);
+    prism.exportAllTriangles(sd, fun);
     fun.renderAll();
     fun.clear();
 

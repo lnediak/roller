@@ -52,7 +52,7 @@ struct Pose {
   }
   v::DVec<3> fromWorldCoords(const v::DVec<3> &c) const {
     v::DVec<3> sc = c - p;
-    v::DVec<3> sh{1, sc[0], sc[1], sc[2]};
+    v::DVec<4> sh{1, sc[0], sc[1], sc[2]};
     v::DVec<4> rh = quaternionMult(quaternionConj(q), quaternionMult(sh, q));
     return {rh[1], rh[2], rh[3]};
   }
