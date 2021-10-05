@@ -37,16 +37,12 @@ struct GLProgram {
   void compileProgram() {
     std::string vsrc = "#version 130\n"
                        "in vec3 pos;"
-                       "in uint col;"
+                       "in vec4 col;"
                        "out vec4 outCol;"
                        "uniform mat4 projMat;"
                        "void main() {"
                        "  gl_Position = projMat * vec4(pos, 1.0);"
-                       "  float r = float(col >> 24) / 255.;"
-                       "  float g = float((col >> 16) & 0x000000FFU) / 255.;"
-                       "  float b = float((col >> 8) & 0x000000FFU) / 255.;"
-                       "  float a = float(col & 0x000000FFU) / 255.;"
-                       "  outCol = vec4(r, g, b, a);"
+                       "  outCol = col;"
                        "}";
     std::string fsrc = "#version 130\n"
                        "in vec4 outCol;"
@@ -212,8 +208,8 @@ struct GLTrianglesRecorder {
                  GL_STATIC_DRAW);
     glVertexAttribPointer(prog.posLoc, 3, GL_FLOAT, GL_FALSE, 4 * sizeof(float),
                           0);
-    glVertexAttribIPointer(prog.colLoc, 1, GL_UNSIGNED_INT, 4 * sizeof(float),
-                           (void *)(3 * sizeof(float)));
+    glVertexAttribPointer(prog.colLoc, 4, GL_UNSIGNED_BYTE, GL_TRUE,
+                          4 * sizeof(float), (void *)(3 * sizeof(float)));
     glEnableVertexAttribArray(prog.posLoc);
     glEnableVertexAttribArray(prog.colLoc);
   }

@@ -74,11 +74,11 @@ template <class TerGen, class Tag> struct TerrainManager {
     void genAll(TerGen &terGen) { terGen(scoord, data.get(), CHNK_SL); }
 
   private:
-    void triPush(const v::IVec<3> &v, unsigned color) {
+    void triPush(const v::IVec<3> &v, Color color) {
       triangles.push_back(v[0]);
       triangles.push_back(v[1]);
       triangles.push_back(v[2]);
-      triangles.push_back(*((float *)&color));
+      triangles.push_back(color.f);
     }
 
     /**

@@ -7,6 +7,11 @@
 
 namespace roller {
 
+union Color {
+  unsigned char c[4];
+  float f;
+};
+
 struct SliceDirs {
 
   v::DVec<3> c;       /// camera
