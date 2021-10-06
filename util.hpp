@@ -20,6 +20,11 @@ struct SliceDirs {
   double fm;          /// forward multiplier (render distance)
 };
 
+v::DVec<3> cross3(const v::DVec<3> &a, const v::DVec<3> &b) {
+  return {a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2],
+          a[0] * b[1] - a[1] * b[0]};
+}
+
 struct DMat3x3 {
   v::DVec<3> a, b, c; /// rows
 

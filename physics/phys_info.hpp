@@ -1,6 +1,7 @@
 #ifndef ROLLER_PHYSICS_PHYS_INFO_HPP_
 #define ROLLER_PHYSICS_PHYS_INFO_HPP_
 
+#include <cmath>
 #include <unordered_set>
 
 #include "pose.hpp"
@@ -73,124 +74,101 @@ struct OBB {
     }
     return ret;
   }
+
+  /// minimum and maximum of u dot v, where v is a point in the OBB
+  v::DVec<2> extrema(const v::DVec<3> &u) const {
+    double o = v::dot(u, b);
+    double lo = o, hi = o;
+    out = b;
+    double t;
+    if ((t = v::dot(u, x)) > 0) {
+      hi += s[0] * t;
+    } else {
+      lo += s[0] * t;
+    }
+    if ((t = v::dot(u, y)) > 0) {
+      hi += s[0] * t;
+    } else {
+      lo += s[0] * t;
+    }
+    if ((t = v::dot(u, z)) > 0) {
+      hi += s[0] * t;
+    } else {
+      lo += s[0] * t;
+    }
+    return {lo, hi};
+  }
+  // finds the value of v such that u dot v is maximum (like extrema)
+  v::DVec<3> maximize(const v::DVec<3> &u) const {
+    v::DVec<3> ret = b;
+    if (v::dot(u, x) > 0) {
+      ret += s[0] * x;
+    }
+    if (v::dot(u, y) > 0) {
+      ret += s[1] * y;
+    }
+    if (v::dot(u, z) > 0) {
+      ret += s[2] * z;
+    }
+    return ret;
+  }
 };
 
 struct Contact {
   double dist;
   v::DVec<3> p, n;
-};
 
-/// XXX: Please clean this up
-struct OBBIntersector {
-  v::DVec<3> wor[2][3];
-
-  v::DVec<3> min[2], max[2], dif[2];
-
-  // in basis specified by first coordinate:
-  v::DVec<3> rel[2][3];        /// face normals of other OBB
-  v::DVec<3> rmin[2], rmax[2]; /// min/max of other OBB
-
-  OBBIntersector(const OBB &p, const OBB &q)
-      : wor{{p.x, p.y, p.z}, {q.x, q.y, q.z}} {
-    DMat3x3 relm = DMat3x3{p.x, p.y, p.z} * DMat3x3{q.x, q.y, q.z}.transpose();
-    rel[1][0] = relm.a;
-    rel[1][1] = relm.b;
-    rel[1][2] = relm.c;
-    relm = relm.transpose();
-    rel[0][0] = relm.a;
-    rel[0][1] = relm.b;
-    rel[0][2] = relm.c;
-  }
-
-  /// just make sure the orientations are the same as the initial ones
-  void initInt(const OBB &p, const OBB &q) {
-    min[0] = p.a;
-    min[1] = q.a;
-    max[0] = p.c;
-    max[1] = q.c;
-    dif[0] = p.c - p.a;
-    dif[1] = q.c - q.a;
-
-    rmin[0] = {v::dot(rel[1][0], min[1]), v::dot(rel[1][1], min[1]),
-               v::dot(rel[1][2], min[1])};
-    rmin[1] = {v::dot(rel[0][0], min[0]), v::dot(rel[0][1], min[0]),
-               v::dot(rel[0][2], min[0])};
-    rmax[0] = {v::dot(rel[1][0], max[1]), v::dot(rel[1][1], max[1]),
-               v::dot(rel[1][2], max[1])};
-    rmax[1] = {v::dot(rel[0][0], max[0]), v::dot(rel[0][1], max[0]),
-               v::dot(rel[0][2], max[0])};
-  }
-
-  void upDown0(double &lo, double &hi, double a) const {
-    if (a > 0) {
-      hi += a;
-    } else {
-      lo += a;
+  Contact lo(const Contact &c) const {
+    if (dist < c.dist) {
+      return *this;
     }
-  }
-  void upDown03(double &lo, double &hi, double a, double b, double c) const {
-    upDown0(lo, hi, a);
-    upDown0(lo, hi, b);
-    upDown0(lo, hi, c);
-  }
-  void upv0(v::DVec<3> &hi, int w, int d, double a) const {
-    if (a > 0) {
-      hi += max[w][d] * wor[w][d];
-    } else {
-      hi += min[w][d] * wor[w][d];
-    }
-  }
-  void upv03(v::DVec<3> &hi, int w, double a, double b, double c) const {
-    hi = 0;
-    upv0(hi, w, 0, a);
-    upv0(hi, w, 1, b);
-    upv0(hi, w, 2, c);
-  }
-  void downv0(v::DVec<3> &lo, int w, int d, double a) const {
-    if (a > 0) {
-      lo += min[w][d] * wor[w][d];
-    } else {
-      lo += max[w][d] * wor[w][d];
-    }
-  }
-  void downv03(v::DVec<3> &lo, int w, double a, double b, double c) const {
-    lo = 0;
-    downv0(lo, w, 0, a);
-    downv0(lo, w, 1, b);
-    downv0(lo, w, 2, c);
-  }
-
-  /// w: 0 or 1; d: 0, 1, or 2
-  Contact distByFace(int w, int d) const {
-    double melo = min[w][d];
-    double mehi = max[w][d];
-    double yulo = rmin[w][d], yuhi = rmin[w][d];
-    double a = dif[!w][0] * rel[w][0][d];
-    double b = dif[!w][1] * rel[w][1][d];
-    double c = dif[!w][2] * rel[w][2][d];
-    upDown03(yulo, yuhi, a, b, c);
-
-    double forP = yuhi - melo;
-    double bakP = yulo - mehi;
-    if (forP < 0 && bakP < 0) {
-      if (forP > bakP) {
-        v::DVec<3> hi;
-        upv03(hi, w, a, b, c);
-        return {forP, hi, wor[w][d]};
-      } else {
-        v::DVec<3> lo;
-        downv03(lo, w, a, b, c);
-        return {bakP, lo, -wor[w][d]};
-      }
-    }
-    Contact c;
-    c.dist = forP > bakP ? bakP : forP;
     return c;
   }
-  /// d0, d1: 0, 1, or 2
-  Contact distByEE(int d0, int d1) const {
-    double melo = min[w][d], mehi = min[w][d];
-    double a = ;
+};
+
+/// XXX: TRIGGER WARNING: NOT OPTIMIZED
+struct OBBIntersector {
+
+  OBB p, q;
+
+  OBBIntersector(const OBB &p, const OBB &q) : p(p), q(q) {}
+
+  /// XXX: evaluate orientation-related constants for optimization
+  void initInt(const OBB &pp, const OBB &qq) {
+    p = pp;
+    q = qq;
+  }
+
+  v::DVec<3> ee(const v::DVec<3> &a, const v::DVec<3> &b) {
+    v::DVec<3> cros = cross3(a, b);
+    double nrm = v::norm2(cros);
+    if (nrm < 1e-12) {
+      return p.x;
+    }
+    return cros / std::sqrt(nrm); // I told this you this is not optimized
+  }
+  /// assuming u is unit vector
+  Contact vc(const v::DVec<3> &u) const {
+    v::DVec<2> a = p.extrema(u);
+    v::Dvec<2> b = q.extrema(u);
+    double forD = a[0] - b[1];
+    double bakD = b[0] - a[1];
+    if (forD < 0 && bakD < 0) {
+      if (forD > bakD) {
+        return {forD, q.maximize(u), u};
+      }
+      return {bakD, q.maximize(-u), -u};
+    }
+    Contact c;
+    c.dist = forD > bakD ? bakD : forD;
+    return c;
+  }
+  Contact getInt() const {
+    Contact ret = vc(p.x).lo(vc(p.y).lo(vc(p.z)));
+    ret = ret.lo(vc(q.x).lo(vc(q.y).lo(vc(q.z))));
+    ret = ret.lo(vc(ee(p.x, q.x)).lo(vc(ee(p.x, q.y)).lo(vc(ee(p.x, q.z)))));
+    ret = ret.lo(vc(ee(p.y, q.x)).lo(vc(ee(p.y, q.y)).lo(vc(ee(p.y, q.z)))));
+    return ret.lo(vc(ee(p.z, q.x)).lo(vc(ee(p.z, q.y)).lo(vc(ee(p.z, q.z)))));
   }
 };
 
