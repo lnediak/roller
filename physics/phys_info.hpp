@@ -80,11 +80,15 @@ struct Contact {
   v::DVec<3> p, n;
 };
 
+/// XXX: Please clean this up
 struct OBBIntersector {
   v::DVec<3> wor[2][3];
-  v::DVec<3> rel[2][3];
 
-  v::DVec<3> min[2], max[2];
+  v::DVec<3> min[2], max[2], dif[2];
+
+  // in basis specified by first coordinate:
+  v::DVec<3> rel[2][3];        /// face normals of other OBB
+  v::DVec<3> rmin[2], rmax[2]; /// min/max of other OBB
 
   OBBIntersector(const OBB &p, const OBB &q)
       : wor{{p.x, p.y, p.z}, {q.x, q.y, q.z}} {
@@ -98,11 +102,23 @@ struct OBBIntersector {
     rel[0][2] = relm.c;
   }
 
+  /// just make sure the orientations are the same as the initial ones
   void initInt(const OBB &p, const OBB &q) {
     min[0] = p.a;
     min[1] = q.a;
     max[0] = p.c;
     max[1] = q.c;
+    dif[0] = p.c - p.a;
+    dif[1] = q.c - q.a;
+
+    rmin[0] = {v::dot(rel[1][0], min[1]), v::dot(rel[1][1], min[1]),
+               v::dot(rel[1][2], min[1])};
+    rmin[1] = {v::dot(rel[0][0], min[0]), v::dot(rel[0][1], min[0]),
+               v::dot(rel[0][2], min[0])};
+    rmax[0] = {v::dot(rel[1][0], max[1]), v::dot(rel[1][1], max[1]),
+               v::dot(rel[1][2], max[1])};
+    rmax[1] = {v::dot(rel[0][0], max[0]), v::dot(rel[0][1], max[0]),
+               v::dot(rel[0][2], max[0])};
   }
 
   void upDown0(double &lo, double &hi, double a) const {
@@ -146,10 +162,12 @@ struct OBBIntersector {
 
   /// w: 0 or 1; d: 0, 1, or 2
   Contact distByFace(int w, int d) const {
-    double melo = m[w][d];
-    double mehi = x[w][d];
-    double yulo, yuhi;
-    double a = rel[w][0][d], b = rel[w][1][d], c = rel[w][2][d];
+    double melo = min[w][d];
+    double mehi = max[w][d];
+    double yulo = rmin[w][d], yuhi = rmin[w][d];
+    double a = dif[!w][0] * rel[w][0][d];
+    double b = dif[!w][1] * rel[w][1][d];
+    double c = dif[!w][2] * rel[w][2][d];
     upDown03(yulo, yuhi, a, b, c);
 
     double forP = yuhi - melo;
@@ -171,7 +189,8 @@ struct OBBIntersector {
   }
   /// d0, d1: 0, 1, or 2
   Contact distByEE(int d0, int d1) const {
-    //
+    double melo = min[w][d], mehi = min[w][d];
+    double a = ;
   }
 };
 
