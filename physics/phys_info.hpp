@@ -19,11 +19,13 @@ struct AuxPhysInfo {
 struct PhysInfo {
   Pose pose;
   v::DVec<3> lm{0, 0, 0}, am{0, 0, 0}; /// linear momentum, angular momentum
+  double sf, kf;                       /// friction
 
   double massi = 0;                               /// 1 / mass
   DMat3x3 ineri{{0, 0, 0}, {0, 0, 0}, {0, 0, 0}}; /// I^{-1}
 
-  PhysInfo(double massi, const DMat3x3 &ineri) : massi(massi), ineri(ineri) {}
+  PhysInfo(double massi, const DMat3x3 &ineri, double sf, double kf)
+      : massi(massi), ineri(ineri), sf(sf), kf(kf) {}
 
   AuxPhysInfo getAuxInfo() const {
     AuxPhysInfo ret;
@@ -32,6 +34,20 @@ struct PhysInfo {
     ret.riner = ret.rot * ineri * ret.rot.transpose();
     ret.omega = ret.riner * am;
     return ret;
+  }
+
+  /// velocity at point p
+  v::DVec<3> getVelocity(const AuxPhysInfo &aux, const v::DVec<3> &p) const {
+    return velo + cross3(aux.omega, p - pose.p);
+  }
+
+  /// Euler's method, minus updating momentum
+  void stepTime(const AuxPhysInfo &aux, double dt) {
+    if (massi < 1e-12) {
+      return;
+    }
+    pose.p += dt * aux.velo;
+    pose.q += dt * 0.5 * aux.omega * pose.q;
   }
 };
 
@@ -131,9 +147,9 @@ struct OBBIntersector {
 
   OBB p, q;
 
-  OBBIntersector(const OBB &p, const OBB &q) : p(p), q(q) {}
-
   /// XXX: evaluate orientation-related constants for optimization
+  OBBIntersector(const OBB &p, const OBB &q) { initInt(p, q); }
+
   void initInt(const OBB &pp, const OBB &qq) {
     p = pp;
     q = qq;
@@ -202,15 +218,15 @@ template <class W> class World {
   std::unordered_set<IP, IPHash, IPEq> aabbInts; /// pairs of intersecting AABBs
 
   void initAABBStuff() {
-    numObjs = w.numObjects();
+    numObjs = w.numObjs();
     xsort.resize(numObjs * 2);
     ysort.resize(numObjs * 2);
     zsort.resize(numObjs * 2);
     cached.resize(numObjs);
     std::vector<double> cached[3](numObjs * 2);
-    std::size_t i = 0;
-    for (auto &obj : w) {
-      AABB aabb = obj.getAABB();
+    for (std::size_t in = 0; in < numObjs; in++) {
+      AABB aabb = w.getObj(i).getAABB();
+      std::size_t i = 2 * in;
       xsort[i] = i;
       cached[0][i] = aabb.m[0][0];
       ysort[i] = i;
@@ -224,7 +240,6 @@ template <class W> class World {
       cached[1][i] = aabb.m[1][1];
       zsort[i] = i;
       cached[2][i] = aabb.m[1][2];
-      i++;
     }
     int xyz;
     auto cmp = [this, &cached, &xyz](int a, int b) -> bool {
@@ -341,11 +356,11 @@ template <class W> class World {
     updateAABBStuff0(zsort, 2);
   }
 
-  /// calls fun(obj1, obj2) for all obj1 and obj2 with intersecting AABBs
+  /// calls fun(i, j) for all i,j indices of intersecting object AABBs
   template <class Fun> void exportAllAABBInts(Fun &&fun) {
     updateAABBStuff();
     for (IP ip : aabbInts) {
-      fun(w.getObj(ip.i), w.getObj(ip.j));
+      fun(ip.i, ip.j);
     }
   }
 };
