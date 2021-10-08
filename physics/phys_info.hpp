@@ -19,6 +19,7 @@ struct AuxPhysInfo {
 struct PhysInfo {
   Pose pose;
   v::DVec<3> lm{0, 0, 0}, am{0, 0, 0}; /// linear momentum, angular momentum
+  double el;                           /// coefficient of restitution
   double sf, kf;                       /// friction
 
   double massi = 0;                               /// 1 / mass
@@ -164,7 +165,7 @@ struct OBBIntersector {
     return cros / std::sqrt(nrm); // I told this you this is not optimized
   }
   /// assuming u is unit vector
-  Contact vc(const v::DVec<3> &u) const {
+  Contact vc(const v::DVec<3> &u) {
     v::DVec<2> a = p.extrema(u);
     v::Dvec<2> b = q.extrema(u);
     double forD = a[0] - b[1];
@@ -179,7 +180,8 @@ struct OBBIntersector {
     c.dist = forD > bakD ? bakD : forD;
     return c;
   }
-  Contact getInt() const {
+  Contact getInts() {
+    cons.clear();
     Contact ret = vc(p.x).lo(vc(p.y).lo(vc(p.z)));
     ret = ret.lo(vc(q.x).lo(vc(q.y).lo(vc(q.z))));
     ret = ret.lo(vc(ee(p.x, q.x)).lo(vc(ee(p.x, q.y)).lo(vc(ee(p.x, q.z)))));

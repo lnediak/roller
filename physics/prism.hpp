@@ -32,9 +32,10 @@ template <class Tag> struct Prism {
   AABB getAABB() const { return getOBB().getAABB(); }
   PhysInfo getPhysInfo() const { return pi; }
   void setPhysInfo(const PhysInfo &pi) { this->pi = pi; }
-  Contact getContact(const Prism &q) const {
+
+  Contact getContacts(const Prism &q) const {
     OBBIntersector inter(getOBB(), q.getOBB());
-    return inter.getInt();
+    return inter.getInts();
   }
 
   template <class Fun> void exportAllTriangles(const SliceDirs &sd, Fun &&fun) {

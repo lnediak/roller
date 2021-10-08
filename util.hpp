@@ -45,6 +45,17 @@ struct DMat3x3 {
     return ret.transpose();
   }
 
+  DMat3x3 &operator+=(const DMat3x3 &o) {
+    a += o.a;
+    b += o.b;
+    c += o.c;
+    return *this;
+  }
+  DMat3x3 operator+(DMat3x3 o) const { return o += *this; }
+
+  /// XXX: DO PROPER GAUSSIAN ELIMINATION OR SOMETHING
+  v::DVec<3> solve(const v::DVec<3> &u) const { return inverse() * u; }
+
   DMat3x3 transpose() const {
     return {{a[0], b[0], c[0]}, {a[1], b[1], c[1]}, {a[2], b[2], c[2]}};
   }
@@ -65,6 +76,14 @@ struct DMat3x3 {
 
   DMat3x3 inverse() const { return adjugate() *= (1 / det()); }
 };
+
+DMat3x3 diagMat(double a, double b, double c) {
+  return {{a, 0, 0}, {0, b, 0}, {0, 0, c}};
+}
+
+DMat3x3 crossMat(const v::DVec<3> &u) {
+  return {{0, -u[2], u[1]}, {u[2], 0, -u[0]}, {-u[1], u[0], 0}};
+}
 
 v::DVec<16> matMult4x4(const v::DVec<16> &a, const v::DVec<16> &b) {
   v::DVec<4> a0{a[0], a[1], a[2], a[3]};
