@@ -15,7 +15,8 @@ template <class Tag> struct Prism {
   bool meshed = false;
 
   /// ds2 > 0, massi = 1 / mass
-  Prism(const v::DVec<3> &ds2, double massi) : s2(ds2) {
+  Prism(const v::DVec<3> &ds2, const v::DVec<3> &pos, double massi) : s2(ds2) {
+    pi.pose.p = pos;
     pi.massi = massi;
     double xx = 1 / (s2[1] * s2[1] + s2[2] * s2[2]);
     double yy = 1 / (s2[0] * s2[0] + s2[2] * s2[2]);
@@ -26,8 +27,9 @@ template <class Tag> struct Prism {
 
   OBB getOBB() const {
     DMat3x3 rott = pi.pose.toRotationMatrix().transpose();
-    v::DVec<3> mp = pi.toWorldCoords(-s2);
-    return {mp, 2 * s2[0] * rott.a, 2 * s2[1] * rott.b, 2 * s2[2] * rott.c};
+    v::DVec<3> mp = pi.pose.toWorldCoords(-s2);
+    std::cout << "getOBB: " << pi.pose.p << mp << std::endl;
+    return {mp, 2 * s2, rott.a, rott.b, rott.c};
   }
   AABB getAABB() const { return getOBB().getAABB(); }
   PhysInfo getPhysInfo() const { return pi; }

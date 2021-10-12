@@ -1,6 +1,7 @@
 #ifndef ROLLER_PHYSICS_PHYS_INFO_HPP_
 #define ROLLER_PHYSICS_PHYS_INFO_HPP_
 
+#include <algorithm>
 #include <cmath>
 #include <unordered_set>
 
@@ -19,14 +20,15 @@ struct AuxPhysInfo {
 struct PhysInfo {
   Pose pose;
   v::DVec<3> lm{0, 0, 0}, am{0, 0, 0}; /// linear momentum, angular momentum
-  double el;                           /// coefficient of restitution
-  double sf, kf;                       /// friction
+  double el = 0.8;                     /// coefficient of restitution
+  double sf = 0.9, kf = 0.3;           /// friction
 
   double massi = 0;                               /// 1 / mass
   DMat3x3 ineri{{0, 0, 0}, {0, 0, 0}, {0, 0, 0}}; /// I^{-1}
 
+  PhysInfo() {}
   PhysInfo(double massi, const DMat3x3 &ineri, double sf, double kf)
-      : massi(massi), ineri(ineri), sf(sf), kf(kf) {}
+      : sf(sf), kf(kf), massi(massi), ineri(ineri) {}
 
   AuxPhysInfo getAuxInfo() const {
     AuxPhysInfo ret;
@@ -39,16 +41,25 @@ struct PhysInfo {
 
   /// velocity at point p
   v::DVec<3> getVelocity(const AuxPhysInfo &aux, const v::DVec<3> &p) const {
-    return velo + cross3(aux.omega, p - pose.p);
+    return aux.velo + cross3(aux.omega, p - pose.p);
   }
 
-  /// Euler's method, minus updating momentum
-  void stepTime(const AuxPhysInfo &aux, double dt) {
+  /// Euler's method, btw
+  void stepTime(const AuxPhysInfo &aux, double dt, double g, bool updateVelo) {
     if (massi < 1e-12) {
       return;
     }
-    pose.p += dt * aux.velo;
-    pose.q += dt * 0.5 * aux.omega * pose.q;
+    v::DVec<3> nvelo = aux.velo;
+    nvelo[2] -= dt * g;
+    if (updateVelo) {
+      lm[2] -= dt * g / massi;
+    }
+    // XXX: deal with quaternion drift
+    pose.p += dt * nvelo;
+    pose.q +=
+        dt * 0.5 *
+        quaternionMult(v::DVec<4>{1, aux.omega[0], aux.omega[1], aux.omega[2]},
+                       pose.q);
   }
 };
 
@@ -66,37 +77,35 @@ struct OBB {
   v::DVec<3> b, s, x, y, z; /// basically b+gx+hy+iz where 0<=g,h,i<=s
   v::DVec<3> a, c;
 
+  OBB() {}
   OBB(const v::DVec<3> &b, const v::DVec<3> &s, const v::DVec<3> &x,
       const v::DVec<3> &y, const v::DVec<3> &z)
       : b(b), s(s), x(x), y(y),
         z(z), a{v::dot(b, x), v::dot(b, y), v::dot(b, z)}, c(a + s) {}
 
+  /// XXX: TRIGGER WARNING: NOT OPTIMIZED
   AABB getAABB() const {
-    // could use extrema below, but unnecessary multiplications
-    AABB ret{{b, b}};
-    if (x[0] > 0) {
-      ret.m[1][0] += s[0] * x[0];
-    } else {
-      ret.m[0][0] += s[0] * x[0];
-    }
-    if (y[0] > 0) {
-      ret.m[1][0] += s[1] * y[0];
-    } else {
-      ret.m[0][0] += s[1] * y[0];
-    }
-    if (z[0] > 0) {
-      ret.m[1][0] += s[2] * z[0];
-    } else {
-      ret.m[0][0] += s[2] * z[0];
-    }
-    return ret;
+    v::DVec<3> c0 = b;
+    v::DVec<3> c1 = b + s[0] * x;
+    v::DVec<3> c2 = b + s[1] * y;
+    v::DVec<3> c3 = b + s[2] * x;
+    v::DVec<3> c4 = c1 + s[1] * y;
+    v::DVec<3> c5 = c2 + s[2] * z;
+    v::DVec<3> c6 = c3 + s[0] * x;
+    v::DVec<3> c7 = c4 + s[2] * z;
+    return {
+        elementwiseMin(
+            elementwiseMin(elementwiseMin(c0, c1), elementwiseMin(c2, c3)),
+            elementwiseMin(elementwiseMin(c4, c5), elementwiseMin(c6, c7))),
+        elementwiseMax(
+            elementwiseMax(elementwiseMax(c0, c1), elementwiseMax(c2, c3)),
+            elementwiseMax(elementwiseMax(c4, c5), elementwiseMax(c6, c7)))};
   }
 
   /// minimum and maximum of u dot v, where v is a point in the OBB
   v::DVec<2> extrema(const v::DVec<3> &u) const {
     double o = v::dot(u, b);
     double lo = o, hi = o;
-    out = b;
     double t;
     if ((t = v::dot(u, x)) > 0) {
       hi += s[0] * t;
@@ -104,14 +113,14 @@ struct OBB {
       lo += s[0] * t;
     }
     if ((t = v::dot(u, y)) > 0) {
-      hi += s[0] * t;
+      hi += s[1] * t;
     } else {
-      lo += s[0] * t;
+      lo += s[1] * t;
     }
     if ((t = v::dot(u, z)) > 0) {
-      hi += s[0] * t;
+      hi += s[2] * t;
     } else {
-      lo += s[0] * t;
+      lo += s[2] * t;
     }
     return {lo, hi};
   }
@@ -136,10 +145,16 @@ struct Contact {
   v::DVec<3> p, n;
 
   Contact lo(const Contact &c) const {
-    if (dist < c.dist) {
+    if (dist > 0) {
+      if (c.dist > 0) {
+        return dist < c.dist ? *this : c;
+      }
+      return c;
+    }
+    if (c.dist > 0) {
       return *this;
     }
-    return c;
+    return dist < c.dist ? c : *this;
   }
 };
 
@@ -148,9 +163,9 @@ struct OBBIntersector {
 
   OBB p, q;
 
-  /// XXX: evaluate orientation-related constants for optimization
   OBBIntersector(const OBB &p, const OBB &q) { initInt(p, q); }
 
+  /// XXX: evaluate orientation-related constants for optimization
   void initInt(const OBB &pp, const OBB &qq) {
     p = pp;
     q = qq;
@@ -167,7 +182,7 @@ struct OBBIntersector {
   /// assuming u is unit vector
   Contact vc(const v::DVec<3> &u) {
     v::DVec<2> a = p.extrema(u);
-    v::Dvec<2> b = q.extrema(u);
+    v::DVec<2> b = q.extrema(u);
     double forD = a[0] - b[1];
     double bakD = b[0] - a[1];
     if (forD < 0 && bakD < 0) {
@@ -181,12 +196,14 @@ struct OBBIntersector {
     return c;
   }
   Contact getInts() {
-    cons.clear();
     Contact ret = vc(p.x).lo(vc(p.y).lo(vc(p.z)));
     ret = ret.lo(vc(q.x).lo(vc(q.y).lo(vc(q.z))));
     ret = ret.lo(vc(ee(p.x, q.x)).lo(vc(ee(p.x, q.y)).lo(vc(ee(p.x, q.z)))));
     ret = ret.lo(vc(ee(p.y, q.x)).lo(vc(ee(p.y, q.y)).lo(vc(ee(p.y, q.z)))));
-    return ret.lo(vc(ee(p.z, q.x)).lo(vc(ee(p.z, q.y)).lo(vc(ee(p.z, q.z)))));
+    ret = ret.lo(vc(ee(p.z, q.x)).lo(vc(ee(p.z, q.y)).lo(vc(ee(p.z, q.z)))));
+    std::cout << "OBBIntersector.getInts: " << ret.dist << " " << ret.p << " "
+              << ret.n << std::endl;
+    return ret;
   }
 };
 
@@ -194,7 +211,7 @@ struct OBBIntersector {
 template <class W> class World {
 
   struct IP {
-    unsigned i, j; /// note: unordered
+    int i, j; /// note: unordered
   };
   struct IPHash {
     std::size_t operator()(const IP &a) const noexcept {
@@ -215,19 +232,21 @@ template <class W> class World {
   W w; /// access point for all info about world
 
   // AABB stuff
-  std::size_t numObjs;
+  std::size_t nObjs;
   std::vector<int> xsort, ysort, zsort; /// each is 2 * obj_ind + (is AABB max)
   std::unordered_set<IP, IPHash, IPEq> aabbInts; /// pairs of intersecting AABBs
 
   void initAABBStuff() {
-    numObjs = w.numObjs();
-    xsort.resize(numObjs * 2);
-    ysort.resize(numObjs * 2);
-    zsort.resize(numObjs * 2);
-    cached.resize(numObjs);
-    std::vector<double> cached[3](numObjs * 2);
-    for (std::size_t in = 0; in < numObjs; in++) {
-      AABB aabb = w.getObj(i).getAABB();
+    nObjs = w.numObjs();
+    xsort.resize(nObjs * 2);
+    ysort.resize(nObjs * 2);
+    zsort.resize(nObjs * 2);
+    std::vector<double> cached[3];
+    cached[0].resize(nObjs * 2);
+    cached[1].resize(nObjs * 2);
+    cached[2].resize(nObjs * 2);
+    for (std::size_t in = 0; in < nObjs; in++) {
+      AABB aabb = w.getObj(in).getAABB();
       std::size_t i = 2 * in;
       xsort[i] = i;
       cached[0][i] = aabb.m[0][0];
@@ -249,13 +268,13 @@ template <class W> class World {
     };
     // sort...
     xyz = 0;
-    std::sort(xsort.beg(), xsort.end(), cmp);
+    std::sort(xsort.begin(), xsort.end(), cmp);
     xyz = 1;
-    std::sort(ysort.beg(), ysort.end(), cmp);
+    std::sort(ysort.begin(), ysort.end(), cmp);
     xyz = 2;
-    std::sort(zsort.beg(), zsort.end(), cmp);
+    std::sort(zsort.begin(), zsort.end(), cmp);
     // and sweep! (not most efficient lol)
-    std::size_t bloat = 3 * numObjs / 2;
+    std::size_t bloat = 3 * nObjs / 2;
     decltype(aabbInts) tmpx(bloat), tmpy(bloat);
     aabbInts.reserve(bloat);
     std::unordered_set<int> active(bloat);
@@ -274,7 +293,6 @@ template <class W> class World {
       if (i & 1) {
         active.erase(i / 2);
       } else {
-        int ii = i / 2;
         for (int j : active) {
           if (tmpx.count({i, j})) {
             tmpy.insert({i, j});
@@ -287,7 +305,6 @@ template <class W> class World {
       if (i & 1) {
         active.erase(i / 2);
       } else {
-        int ii = i / 2;
         for (int j : active) {
           if (tmpy.count({i, j})) {
             aabbInts.insert({i, j});
@@ -298,8 +315,10 @@ template <class W> class World {
     }
   }
 
+public:
   World(W &&w) : w(w) { initAABBStuff(); }
 
+private:
   std::vector<AABB> tmp;
   void updateAABBStuff0(std::vector<int> &dsort, std::size_t d) {
     int rpi = dsort[0]; // real previous index
@@ -322,13 +341,18 @@ template <class W> class World {
           if (tmp[tpi / 2].intersects(tmp[tci / 2])) {
             aabbInts.insert({tpi / 2, tci / 2});
           } else {
+            std::cout << "interesting..." << std::endl;
+            std::cout << tmp[tpi / 2].m[0] << " " << tmp[tpi / 2].m[1]
+                      << std::endl;
+            std::cout << tmp[tci / 2].m[0] << " " << tmp[tci / 2].m[1]
+                      << std::endl;
             aabbInts.erase({tpi / 2, tci / 2});
           }
         }
         dsort[cind] = tpi;
         dsort[--cind] = tci;
 
-        if (!(--cind)) {
+        if (!cind) {
           break;
         }
         tci = tpi;
@@ -343,20 +367,25 @@ template <class W> class World {
       rp = rc;
     }
   }
+
+public:
   void updateAABBStuff() {
-    if (numObjs != w.numObjs()) {
+    if (nObjs != w.numObjs()) {
       // maybe can do an incremental update that's faster
       initAABBStuff();
       return;
     }
-    tmp.resize(numObjs);
-    for (std::size_t i = 0; i < numObjs; i++) {
+    tmp.resize(nObjs);
+    for (std::size_t i = 0; i < nObjs; i++) {
       tmp[i] = w.getObj(i).getAABB();
     }
     updateAABBStuff0(xsort, 0);
     updateAABBStuff0(ysort, 1);
     updateAABBStuff0(zsort, 2);
   }
+
+  std::size_t numObjs() const { return nObjs; }
+  decltype(w.getObj(0)) &getObj(std::size_t i) { return w.getObj(i); }
 
   /// calls fun(i, j) for all i,j indices of intersecting object AABBs
   template <class Fun> void exportAllAABBInts(Fun &&fun) {
