@@ -42,7 +42,7 @@ template <class W> class Solver {
   std::vector<AuxPhysInfo> x;
   std::vector<Collision> cols; // collisions
 
-  double eps; // collision threshold
+  double eps = 1e-3; // collision threshold
 
 public:
   Solver(W &&w, double g) : w(std::forward<W>(w)), g(g) {}
@@ -103,7 +103,9 @@ public:
       return;
     }
     double kf = (p[i].kf + p[j].kf) / 2.;
+    std::cout << "using friction: " << kf << std::endl;
     v::DVec<3> utann = urel / std::sqrt(v::norm2(urel));
+    std::cout << "utann: " << utann << std::endl;
     jdn = -(el + 1) * ureln / v::dot(n, kt * (n - kf * utann));
     imp = jdn * n;
 

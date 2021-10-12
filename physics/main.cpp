@@ -45,8 +45,8 @@ int main() {
   roller::SliceDirs sd = {{0, 0, 0}, {1, 0, 0}, {0, 0, 1}, {0, 1, 0},
                           1.5,       1.5,       128};
   roller::OneObjWorld<roller::Prism<GLMesh>> world;
-  world.objs.emplace_back(v::DVec<3>{10, 10, 1}, v::DVec<3>{0, 0, -5}, 0);
-  world.objs.emplace_back(v::DVec<3>{1, 2, 1}, v::DVec<3>{0, 8, 5}, 1);
+  world.objs.emplace_back(v::DVec<3>{30, 30, 1}, v::DVec<3>{0, 30, -5}, 0);
+  world.objs.emplace_back(v::DVec<3>{1, 2, 1}, v::DVec<3>{0, 10, 5}, 1);
   // world.objs.emplace_back(v::DVec<3>{1, 2, 1}, v::DVec<3>{0, 8, 2}, 1);
   roller::Solver<decltype(world) &> solver(world, 1);
 
@@ -61,7 +61,9 @@ int main() {
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     glfwPollEvents();
 
-    solver.step(0.01);
+    // for (int spam = 0; spam < 10; spam++) {
+    solver.step(0.003);
+    //}
     for (std::size_t i = 0; i < world.numObjs(); i++) {
       world.getObj(i).exportAllTriangles(sd, fun);
     }

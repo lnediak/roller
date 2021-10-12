@@ -54,12 +54,12 @@ struct PhysInfo {
     if (updateVelo) {
       lm[2] -= dt * g / massi;
     }
-    // XXX: deal with quaternion drift
     pose.p += dt * nvelo;
     pose.q +=
         dt * 0.5 *
         quaternionMult(v::DVec<4>{1, aux.omega[0], aux.omega[1], aux.omega[2]},
                        pose.q);
+    pose.q /= std::sqrt(v::norm2(pose.q));
   }
 };
 
@@ -144,6 +144,7 @@ struct Contact {
   double dist;
   v::DVec<3> p, n;
 
+  /// XXX: PLEASE CHANGE WHEN YOU CAN
   Contact lo(const Contact &c) const {
     if (dist > 0) {
       if (c.dist > 0) {
@@ -154,7 +155,10 @@ struct Contact {
     if (c.dist > 0) {
       return *this;
     }
-    return dist < c.dist ? c : *this;
+    if (v::norm2(p - c.p) < 1e-3) {
+      return dist < c.dist ? c : *this;
+    }
+    return dist < c.dist ? *this : c;
   }
 };
 
