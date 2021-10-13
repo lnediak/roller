@@ -143,7 +143,7 @@ public:
       x[i] = p[i].getAuxInfo();
     }
     // collision resolution passes
-    for (int spam = 0; spam < 1; spam++) {
+    for (int spam = 0; spam < 5; spam++) {
       for (std::size_t i = 0; i < numObjs; i++) {
         p[i].pose = porig[i].pose;
         x[i] = p[i].getAuxInfo();

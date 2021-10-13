@@ -42,8 +42,8 @@ int main() {
   glCullFace(GL_BACK);
   glFrontFace(GL_CCW);
 
-  roller::SliceDirs sd = {{0, -5, 0}, {1, 0, 0}, {0, 0, 1}, {0, 1, 0},
-                          1.5,        1.5,       128};
+  roller::SliceDirs sd = {{0, -5, -5}, {1, 0, 0}, {0, 0, 1}, {0, 1, 0},
+                          1.5,         1.5,       128};
   roller::OneObjWorld<roller::Prism<GLMesh>> world;
   world.objs.emplace_back(v::DVec<3>{20, 30, 1}, v::DVec<3>{0, 33, -10}, 0);
   world.objs.emplace_back(v::DVec<3>{1, 2, 1}, v::DVec<3>{0, 8, -2}, 1);
@@ -55,7 +55,7 @@ int main() {
   world.objs.emplace_back(v::DVec<3>{1, 30, 10}, v::DVec<3>{-20, 33, 0}, 0);
   world.objs.emplace_back(v::DVec<3>{1, 30, 10}, v::DVec<3>{20, 33, 0}, 0);
   // world.objs.emplace_back(v::DVec<3>{1, 2, 1}, v::DVec<3>{0, 8, 2}, 1);
-  roller::Solver<decltype(world) &> solver(world, 1);
+  roller::Solver<decltype(world) &> solver(world, 5);
 
   GLProgram prog;
   prog.compileProgram();
@@ -68,7 +68,7 @@ int main() {
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     glfwPollEvents();
 
-    for (int spam = 0; spam < 10; spam++) {
+    for (int spam = 0; spam < 3; spam++) {
       solver.step(0.003);
     }
     for (std::size_t i = 0; i < world.numObjs(); i++) {

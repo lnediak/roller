@@ -20,7 +20,7 @@ struct AuxPhysInfo {
 struct PhysInfo {
   Pose pose;
   v::DVec<3> lm{0, 0, 0}, am{0, 0, 0}; /// linear momentum, angular momentum
-  double el = 1;                       /// coefficient of restitution
+  double el = 0.8;                     /// coefficient of restitution
   double sf = 0.9, kf = 0.3;           /// friction
 
   double massi = 0;                               /// 1 / mass
@@ -147,7 +147,7 @@ struct OBB {
     }
     return {lo, hi};
   }
-  // finds the value of v such that u dot v is maximum (like extrema)
+  // finds the value of v such that u dot v is maximum (a.k.a. support)
   v::DVec<3> maximize(const v::DVec<3> &u) const {
     v::DVec<3> ret = b;
     if (v::dot(u, x) > 0) {
@@ -161,37 +161,36 @@ struct OBB {
     }
     return ret;
   }
-  // I'll implement this efficiently later. Right now, I'm jjust
-  // a little sick of this and want it to WORKKKKKKK already
-  // XXX: Use GJK/EPA or something instead of my hideous garbage below
-  Contact deepest(const v::DVec<3> &u, const OBB &o, bool flipN) const {
-    Contact ret;
-    ret.dist = 100;
-    for (int d1 = 0; d1 < 3; d1++) {
-      int d2 = d1 >= 2 ? 0 : d1 + 1;
-      int d3 = d2 >= 2 ? 0 : d2 + 1;
-      for (int m1 = 0; m1 < 2; m1++) {
-        for (int m2 = 0; m2 < 2; m2++) {
-          v::DVec<3> pp =
-              o.b + m1 * o.s[d2] * o.dirD(d2) + m2 * o.s[d3] * o.dirD(d3);
-          Contact tmp = deepestAlongSeg(u, pp, pp + o.s[d1] * o.dirD(d1));
-          ret = ret.hi(tmp);
-          std::cout << "deepest. tmp: " << tmp.dist << std::endl;
-          if (tmp.dist < 0) {
-            std::cout << tmp.p << tmp.n << std::endl;
-          }
+  /// returns whether *this intersects the specified line
+  /// segment, and outputs a point on both into `out`
+  bool getAlongSeg(const v::DVec<3> &p, const v::DVec<3> &q,
+                   v::DVec<3> &out) const {
+    v::DVec<3> d = q - p;
+    v::DVec<3> dd = {v::dot(d, x), v::dot(d, y), v::dot(d, z)};
+    v::DVec<3> pp = {v::dot(p, x), v::dot(p, y), v::dot(p, z)};
+    double lo = 0, hi = 1;
+    for (int ind = 0; ind < 3; ind++) {
+      if (-1e-3 < dd[ind] && dd[ind] < 1e-3) {
+        if ((a[ind] <= pp[ind]) ^ (pp[ind] <= c[ind])) {
+          return false;
         }
+        continue;
+      }
+      double tlo = (a[ind] - pp[ind]) / dd[ind];
+      double thi = (c[ind] - pp[ind]) / dd[ind];
+      if (tlo > thi) {
+        lo = std::fmax(lo, thi);
+        hi = std::fmin(hi, tlo);
+      } else {
+        lo = std::fmax(lo, tlo);
+        hi = std::fmin(hi, thi);
       }
     }
-    if (flipN) {
-      ret.n = -ret.n;
+    if (lo > hi) {
+      return false;
     }
-    std::cout << "returning: " << ret.dist << std::endl;
-    if (ret.dist < 0) {
-      std::cout << ret.p << ret.n << std::endl;
-    }
-    std::cout << std::endl;
-    return ret;
+    out = p + 0.5 * (lo + hi) * d;
+    return true;
   }
   v::DVec<3> dirD(int i) const {
     switch (i) {
@@ -204,43 +203,22 @@ struct OBB {
     }
     return {0, 0, 0};
   }
-  // normal will point away from *this
-  Contact deepestAlongSeg(const v::DVec<3> &u, v::DVec<3> p,
-                          v::DVec<3> q) const {
-    std::cout << "deepestAlongSeg: " << u << p << q << std::endl;
-    if (v::dot(p, u) < v::dot(q, u)) {
-      v::DVec<3> tmp = p;
-      p = q;
-      q = tmp;
-    }
-    v::DVec<3> d = q - p;
-    v::DVec<3> dd = {v::dot(d, x), v::dot(d, y), v::dot(d, z)};
-    v::DVec<3> pp = {v::dot(p, x), v::dot(p, y), v::dot(p, z)};
-    std::cout << "a, c, dd, pp: " << a << c << dd << pp << std::endl;
-    double lo = 0, hi = 1;
-    for (int ind = 0; ind < 3; ind++) {
-      if (-1e-3 < dd[ind] && dd[ind] < 1e-3) {
-        if ((a[ind] < pp[ind]) ^ (pp[ind] < c[ind])) {
-          Contact ret;
-          ret.dist = 100;
-          return ret;
+  /// tries to find a point on o's wireframe in *this
+  bool getInInter(const OBB &o, v::DVec<3> &out) const {
+    for (int d1 = 0; d1 < 3; d1++) {
+      int d2 = d1 >= 2 ? 0 : d1 + 1;
+      int d3 = d2 >= 2 ? 0 : d2 + 1;
+      for (int m1 = 0; m1 < 2; m1++) {
+        for (int m2 = 0; m2 < 2; m2++) {
+          v::DVec<3> pp =
+              o.b + m1 * o.s[d2] * o.dirD(d2) + m2 * o.s[d3] * o.dirD(d3);
+          if (getAlongSeg(pp, pp + o.s[d1] * o.dirD(d1), out)) {
+            return true;
+          }
         }
       }
-      double tlo = (a[ind] - pp[ind]) / dd[ind];
-      double thi = (c[ind] - pp[ind]) / dd[ind];
-      if (tlo > thi) {
-        lo = std::fmax(lo, thi);
-        hi = std::fmin(hi, tlo);
-      } else {
-        lo = std::fmax(lo, tlo);
-        hi = std::fmin(hi, thi);
-      }
     }
-    std::cout << "lo, hi: " << lo << " " << hi << std::endl;
-    if (hi >= 1 || hi >= 1 - lo) {
-      return {(1 - lo) * v::dot(d, u), p + hi * q, u};
-    }
-    return {hi * v::dot(d, u), p + lo * d, -u};
+    return false;
   }
 };
 
@@ -272,38 +250,42 @@ struct OBBIntersector {
     return a[0] > b[1] || a[1] < b[0];
   }
   Contact getInts() {
-    if (vc(p.x) || vc(p.y) || vc(p.z) || vc(q.x) || vc(q.y) || vc(q.z) ||
-        vc(ee(p.x, q.x)) || vc(ee(p.x, q.y)) || vc(ee(p.x, q.z)) ||
-        vc(ee(p.y, q.x)) || vc(ee(p.y, q.y)) || vc(ee(p.y, q.z)) ||
-        vc(ee(p.z, q.x)) || vc(ee(p.z, q.y)) || vc(ee(p.z, q.z))) {
-      Contact ret;
-      ret.dist = 10; // junk
-      return ret;
-    }
-    // I'm not even trying to make this even remotely optimized
+    v::DVec<3> axes[] = {p.x,          p.y,          p.z, // p vert-face
+                         q.x,          q.y,          q.z, // q vert-face
+                         ee(p.x, q.x), ee(p.x, q.y), ee(p.x, q.z),
+                         ee(p.y, q.x), ee(p.y, q.y), ee(p.y, q.z),
+                         ee(p.z, q.x), ee(p.z, q.y), ee(p.z, q.z)};
     Contact ret;
     ret.dist = 100;
-    ret = ret.lo(p.deepest(q.x, q, true));
-    ret = ret.lo(p.deepest(q.y, q, true));
-    ret = ret.lo(p.deepest(q.z, q, true));
-    ret = ret.lo(q.deepest(p.x, p, false));
-    ret = ret.lo(q.deepest(p.y, p, false));
-    ret = ret.lo(q.deepest(p.z, p, false));
-
-    std::cout << "after vertices. ret: " << ret.dist << std::endl;
-    if (ret.dist < 0) {
-      std::cout << ret.p << ret.n << std::endl;
+    for (const v::DVec<3> &axis : axes) {
+      v::DVec<2> a = p.extrema(axis);
+      v::DVec<2> b = q.extrema(axis);
+      double forD = a[0] - b[1];
+      double bakD = b[0] - a[1];
+      if (forD > 0 || bakD > 0) {
+        ret.dist = std::fmax(forD, bakD);
+        return ret;
+      }
+      double tmpd;
+      v::DVec<3> tmpn;
+      if (forD > bakD) {
+        tmpd = forD;
+        tmpn = axis;
+      } else {
+        tmpd = bakD;
+        tmpn = -axis;
+      }
+      if (ret.dist > 0 || ret.dist < tmpd) {
+        ret.dist = tmpd;
+        ret.n = tmpn;
+      }
     }
-
-    ret = ret.lo(q.deepest(ee(p.x, q.x), p, false));
-    ret = ret.lo(q.deepest(ee(p.x, q.y), p, false));
-    ret = ret.lo(q.deepest(ee(p.x, q.z), p, false));
-    ret = ret.lo(q.deepest(ee(p.y, q.x), p, false));
-    ret = ret.lo(q.deepest(ee(p.y, q.y), p, false));
-    ret = ret.lo(q.deepest(ee(p.y, q.z), p, false));
-    ret = ret.lo(q.deepest(ee(p.z, q.x), p, false));
-    ret = ret.lo(q.deepest(ee(p.z, q.y), p, false));
-    ret = ret.lo(q.deepest(ee(p.z, q.z), p, false));
+    if (!p.getInInter(q, ret.p)) {
+      if (!q.getInInter(p, ret.p)) {
+        std::cout << "I'm gonna BAIL!!!!!!!" << std::endl;
+        ret.dist = 100;
+      }
+    }
 
     std::cout << "OBBIntersector.getInts: " << ret.dist << " " << ret.p << " "
               << ret.n << std::endl;
