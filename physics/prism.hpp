@@ -28,6 +28,10 @@ template <class Tag> struct Prism {
   OBB getOBB() const {
     DMat3x3 rott = pi.pose.toRotationMatrix().transpose();
     v::DVec<3> mp = pi.pose.toWorldCoords(-s2);
+    /*std::cout << "getOBB: " << mp
+              << cross3(pi.getAuxInfo().omega, mp - pi.pose.p) << std::endl;
+    std::cout << "riner: " << pi.getAuxInfo().riner.a << pi.getAuxInfo().riner.b
+              << pi.getAuxInfo().riner.c << std::endl;*/
     return {mp, 2 * s2, rott.a, rott.b, rott.c};
   }
   AABB getAABB() const { return getOBB().getAABB(); }

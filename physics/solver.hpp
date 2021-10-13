@@ -48,6 +48,9 @@ public:
   Solver(W &&w, double g) : w(std::forward<W>(w)), g(g) {}
 
   void addCollision(int i, int j) {
+    if (!p[i].massi && !p[j].massi) {
+      return;
+    }
     auto &o1 = w.getObj(i);
     auto &o2 = w.getObj(j);
     Contact c = o1.getContacts(o2);
@@ -83,8 +86,14 @@ public:
     DMat3x3 rcr1 = crossMat(r1);
     v::DVec<3> r2 = pos - p[j].pose.p;
     DMat3x3 rcr2 = crossMat(r2);
-    DMat3x3 kt = diagMat(mi, mi, mi) + rcr1.transpose() * p[i].ineri * rcr1 +
-                 rcr2.transpose() * p[j].ineri * rcr2;
+    DMat3x3 kt = diagMat(mi, mi, mi) + rcr1.transpose() * x[i].riner * rcr1 +
+                 rcr2.transpose() * x[j].riner * rcr2;
+    std::cout << "kt: " << kt.a << " " << kt.b << " " << kt.c << std::endl;
+    std::cout << "x[i].riner: " << x[i].riner.a << " " << x[i].riner.b << " "
+              << x[i].riner.c << std::endl;
+    std::cout << "x[j].riner: " << x[j].riner.a << " " << x[j].riner.b << " "
+              << x[j].riner.c << std::endl;
+    std::cout << "r1, r2: " << r1 << r2 << std::endl;
     v::DVec<3> imp = kt.solve(lhs);
     // test if in friction cone
     // XXX: MODIFY STATIC AND KINETIC FRICTION FORMULAS BELOW
@@ -92,6 +101,8 @@ public:
     double sf = (p[i].sf + p[j].sf) / 2.;
     if (v::norm2(imp - jdn * n) <= jdn * jdn * sf * sf) {
       // in cone; update velocities
+      std::cout << "under sf, btw" << std::endl;
+      std::cout << "imp: " << imp << std::endl;
       p[i].lm += imp;
       p[j].lm -= imp;
       p[i].am += cross3(r1, imp);
@@ -108,6 +119,7 @@ public:
     std::cout << "utann: " << utann << std::endl;
     jdn = -(el + 1) * ureln / v::dot(n, kt * (n - kf * utann));
     imp = jdn * n;
+    std::cout << "imp: " << imp << std::endl;
 
     p[i].lm += imp;
     p[j].lm -= imp;

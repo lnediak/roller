@@ -20,7 +20,7 @@ struct AuxPhysInfo {
 struct PhysInfo {
   Pose pose;
   v::DVec<3> lm{0, 0, 0}, am{0, 0, 0}; /// linear momentum, angular momentum
-  double el = 0.8;                     /// coefficient of restitution
+  double el = 1;                       /// coefficient of restitution
   double sf = 0.9, kf = 0.3;           /// friction
 
   double massi = 0;                               /// 1 / mass
@@ -55,9 +55,10 @@ struct PhysInfo {
       lm[2] -= dt * g / massi;
     }
     pose.p += dt * nvelo;
+    // XXX: MORE INTELLIGENT QUATERNION DRIFT HANDLING
     pose.q +=
         dt * 0.5 *
-        quaternionMult(v::DVec<4>{1, aux.omega[0], aux.omega[1], aux.omega[2]},
+        quaternionMult(v::DVec<4>{0, aux.omega[0], aux.omega[1], aux.omega[2]},
                        pose.q);
     pose.q /= std::sqrt(v::norm2(pose.q));
   }
@@ -73,6 +74,22 @@ struct AABB {
   }
 };
 
+struct Contact {
+  double dist;
+  v::DVec<3> p, n;
+
+  Contact lo(const Contact &c) const {
+    if (dist > 0) {
+      return dist < c.dist ? *this : c;
+    }
+    if (c.dist > 0) {
+      return *this;
+    }
+    return dist < c.dist ? c : *this;
+  }
+  Contact hi(const Contact &c) const { return dist < c.dist ? *this : c; }
+};
+
 struct OBB {
   v::DVec<3> b, s, x, y, z; /// basically b+gx+hy+iz where 0<=g,h,i<=s
   v::DVec<3> a, c;
@@ -83,12 +100,18 @@ struct OBB {
       : b(b), s(s), x(x), y(y),
         z(z), a{v::dot(b, x), v::dot(b, y), v::dot(b, z)}, c(a + s) {}
 
+  bool isIn(const v::DVec<3> &p) const {
+    v::DVec<3> pd = {v::dot(p, x), v::dot(p, y), v::dot(p, z)};
+    return a[0] <= pd[0] && a[1] <= pd[1] && a[2] <= pd[2] && pd[0] <= c[0] &&
+           pd[1] <= c[1] && pd[2] <= c[2];
+  }
+
   /// XXX: TRIGGER WARNING: NOT OPTIMIZED
   AABB getAABB() const {
     v::DVec<3> c0 = b;
     v::DVec<3> c1 = b + s[0] * x;
     v::DVec<3> c2 = b + s[1] * y;
-    v::DVec<3> c3 = b + s[2] * x;
+    v::DVec<3> c3 = b + s[2] * z;
     v::DVec<3> c4 = c1 + s[1] * y;
     v::DVec<3> c5 = c2 + s[2] * z;
     v::DVec<3> c6 = c3 + s[0] * x;
@@ -138,27 +161,66 @@ struct OBB {
     }
     return ret;
   }
-};
-
-struct Contact {
-  double dist;
-  v::DVec<3> p, n;
-
-  /// XXX: PLEASE CHANGE WHEN YOU CAN
-  Contact lo(const Contact &c) const {
-    if (dist > 0) {
-      if (c.dist > 0) {
-        return dist < c.dist ? *this : c;
+  // I'll implement this efficiently later. Right now, I'm jjust
+  // a little sick of this and want it to WORKKKKKKK already
+  // XXX: Use GJK/EPA or something instead of my hideous garbage below
+  Contact deepest(const v::DVec<3> &u, const OBB &o, bool flipN) const {
+    Contact ret;
+    ret.dist = 100;
+    for (int d1 = 0; d1 < 3; d1++) {
+      int d2 = d1 >= 2 ? 0 : d1 + 1;
+      int d3 = d2 >= 2 ? 0 : d2 + 1;
+      for (int m1 = 0; m1 < 2; m1++) {
+        for (int m2 = 0; m2 < 2; m2++) {
+          v::DVec<3> pp =
+              o.b + m1 * o.s[d2] * o.dirD(d2) + m2 * o.s[d3] * o.dirD(d3);
+          ret = ret.hi(deepestAlongSeg(u, pp, pp + o.s[d1] * o.dirD(d1)));
+        }
       }
-      return c;
     }
-    if (c.dist > 0) {
-      return *this;
+    if (flipN) {
+      ret.n = -ret.n;
     }
-    if (v::norm2(p - c.p) < 1e-3) {
-      return dist < c.dist ? c : *this;
+    return ret;
+  }
+  v::DVec<3> dirD(int i) const {
+    switch (i) {
+    case 0:
+      return x;
+    case 1:
+      return y;
+    case 2:
+      return z;
     }
-    return dist < c.dist ? *this : c;
+    return {0, 0, 0};
+  }
+  // normal will point away from *this
+  Contact deepestAlongSeg(const v::DVec<3> &u, v::DVec<3> p,
+                          v::DVec<3> q) const {
+    if (v::dot(p, u) < v::dot(q, u)) {
+      v::DVec<3> tmp = p;
+      p = q;
+      q = tmp;
+    }
+    v::DVec<3> d = q - p;
+    double dd[] = {v::dot(d, x), v::dot(d, y), v::dot(d, z)};
+    double pp[] = {v::dot(p, x), v::dot(p, y), v::dot(p, z)};
+    double lo = 0, hi = 1;
+    for (int ind = 0; ind < 3; ind++) {
+      double tlo = (a[ind] - pp[ind]) / dd[ind];
+      double thi = (c[ind] - pp[ind]) / dd[ind];
+      if (tlo > thi) {
+        lo = std::fmax(lo, thi);
+        hi = std::fmin(hi, tlo);
+      } else {
+        lo = std::fmax(lo, tlo);
+        hi = std::fmin(hi, thi);
+      }
+    }
+    if (hi >= 1 || hi >= 1 - lo) {
+      return {(1 - lo) * v::dot(d, u), q, u};
+    }
+    return {hi * v::dot(d, u), p + lo * d, -u};
   }
 };
 
@@ -181,32 +243,52 @@ struct OBBIntersector {
     if (nrm < 1e-12) {
       return p.x;
     }
-    return cros / std::sqrt(nrm); // I told this you this is not optimized
+    return cros / std::sqrt(nrm);
   }
   /// assuming u is unit vector
-  Contact vc(const v::DVec<3> &u) {
+  bool vc(const v::DVec<3> &u) {
     v::DVec<2> a = p.extrema(u);
     v::DVec<2> b = q.extrema(u);
     double forD = a[0] - b[1];
     double bakD = b[0] - a[1];
     if (forD < 0 && bakD < 0) {
-      if (forD > bakD) {
-        return {forD, q.maximize(u), u};
-      }
-      return {bakD, q.maximize(-u), -u};
+      return false;
     }
-    Contact c;
-    c.dist = forD > bakD ? bakD : forD;
-    return c;
+    return true;
   }
   Contact getInts() {
-    Contact ret = vc(p.x).lo(vc(p.y).lo(vc(p.z)));
-    ret = ret.lo(vc(q.x).lo(vc(q.y).lo(vc(q.z))));
-    ret = ret.lo(vc(ee(p.x, q.x)).lo(vc(ee(p.x, q.y)).lo(vc(ee(p.x, q.z)))));
-    ret = ret.lo(vc(ee(p.y, q.x)).lo(vc(ee(p.y, q.y)).lo(vc(ee(p.y, q.z)))));
-    ret = ret.lo(vc(ee(p.z, q.x)).lo(vc(ee(p.z, q.y)).lo(vc(ee(p.z, q.z)))));
+    if (vc(p.x) || vc(p.y) || vc(p.z) || vc(q.x) || vc(q.y) || vc(q.z) ||
+        vc(ee(p.x, q.x)) || vc(ee(p.x, q.y)) || vc(ee(p.x, q.z)) ||
+        vc(ee(p.y, q.x)) || vc(ee(p.y, q.y)) || vc(ee(p.y, q.z)) ||
+        vc(ee(p.z, q.x)) || vc(ee(p.z, q.y)) || vc(ee(p.z, q.z))) {
+      Contact ret;
+      ret.dist = 10; // junk
+      return ret;
+    }
+    // now, now, let's find the actual contact point and normal.
+
+    Contact ret;
+    ret = ret.lo(p.deepest(q.x, q, true));
+    ret = ret.lo(p.deepest(q.y, q, true));
+    ret = ret.lo(p.deepest(q.z, q, true));
+    ret = ret.lo(q.deepest(p.x, p, false));
+    ret = ret.lo(q.deepest(p.y, p, false));
+    ret = ret.lo(q.deepest(p.z, p, false));
+
+    ret = ret.lo(q.deepest(ee(p.x, q.x), p, false));
+    ret = ret.lo(q.deepest(ee(p.x, q.y), p, false));
+    ret = ret.lo(q.deepest(ee(p.x, q.z), p, false));
+    ret = ret.lo(q.deepest(ee(p.y, q.x), p, false));
+    ret = ret.lo(q.deepest(ee(p.y, q.y), p, false));
+    ret = ret.lo(q.deepest(ee(p.y, q.z), p, false));
+    ret = ret.lo(q.deepest(ee(p.z, q.x), p, false));
+    ret = ret.lo(q.deepest(ee(p.z, q.y), p, false));
+    ret = ret.lo(q.deepest(ee(p.z, q.z), p, false));
+
     std::cout << "OBBIntersector.getInts: " << ret.dist << " " << ret.p << " "
               << ret.n << std::endl;
+    std::cout << "with " << p.b << p.s << p.x << p.y << p.z << std::endl;
+    std::cout << "and " << q.b << q.s << q.x << q.y << q.z << std::endl;
     return ret;
   }
 };
@@ -286,10 +368,11 @@ template <class W> class World {
       if (i & 1) {
         active.erase(i / 2); // note: assuming no degenerate AABBs
       } else {
+        int ii = i / 2;
         for (int j : active) {
-          tmpx.insert({i, j});
+          tmpx.insert({ii, j});
         }
-        active.insert(i / 2);
+        active.insert(ii);
       }
     }
     // active should be empty right now
@@ -297,24 +380,26 @@ template <class W> class World {
       if (i & 1) {
         active.erase(i / 2);
       } else {
+        int ii = i / 2;
         for (int j : active) {
-          if (tmpx.count({i, j})) {
-            tmpy.insert({i, j});
+          if (tmpx.count({ii, j})) {
+            tmpy.insert({ii, j});
           }
         }
-        active.insert(i / 2);
+        active.insert(ii);
       }
     }
     for (int i : zsort) {
       if (i & 1) {
         active.erase(i / 2);
       } else {
+        int ii = i / 2;
         for (int j : active) {
-          if (tmpy.count({i, j})) {
-            aabbInts.insert({i, j});
+          if (tmpy.count({ii, j})) {
+            aabbInts.insert({ii, j});
           }
         }
-        active.insert(i / 2);
+        active.insert(ii);
       }
     }
   }

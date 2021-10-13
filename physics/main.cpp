@@ -42,13 +42,20 @@ int main() {
   glCullFace(GL_BACK);
   glFrontFace(GL_CCW);
 
-  roller::SliceDirs sd = {{0, 0, 0}, {1, 0, 0}, {0, 0, 1}, {0, 1, 0},
-                          1.5,       1.5,       128};
+  roller::SliceDirs sd = {{0, -5, 0}, {1, 0, 0}, {0, 0, 1}, {0, 1, 0},
+                          1.5,        1.5,       128};
   roller::OneObjWorld<roller::Prism<GLMesh>> world;
-  world.objs.emplace_back(v::DVec<3>{30, 30, 1}, v::DVec<3>{0, 30, -5}, 0);
-  world.objs.emplace_back(v::DVec<3>{1, 2, 1}, v::DVec<3>{0, 10, 5}, 1);
+  world.objs.emplace_back(v::DVec<3>{30, 30, 1}, v::DVec<3>{0, 33, -10}, 0);
+  world.objs.emplace_back(v::DVec<3>{1, 2, 1}, v::DVec<3>{0, 8, -2}, 1);
+  world.objs.emplace_back(v::DVec<3>{1, 1, 1}, v::DVec<3>{1.9, 8, 5}, 1);
+  world.objs[2].pi.lm[2] = -1;
+  world.objs[2].pi.am = {0, 1, 1};
+  world.objs.emplace_back(v::DVec<3>{30, 30, 1}, v::DVec<3>{0, 33, 10}, 0);
+  world.objs.emplace_back(v::DVec<3>{30, 1, 10}, v::DVec<3>{0, 33, 0}, 0);
+  world.objs.emplace_back(v::DVec<3>{1, 30, 10}, v::DVec<3>{-30, 33, 0}, 0);
+  world.objs.emplace_back(v::DVec<3>{1, 30, 10}, v::DVec<3>{30, 33, 0}, 0);
   // world.objs.emplace_back(v::DVec<3>{1, 2, 1}, v::DVec<3>{0, 8, 2}, 1);
-  roller::Solver<decltype(world) &> solver(world, 1);
+  roller::Solver<decltype(world) &> solver(world, 0);
 
   GLProgram prog;
   prog.compileProgram();
@@ -61,9 +68,24 @@ int main() {
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     glfwPollEvents();
 
-    // for (int spam = 0; spam < 10; spam++) {
-    solver.step(0.003);
-    //}
+    /*
+    roller::Pose pose = world.objs[2].pi.pose;
+    v::DVec<3> test = {-1, -1, -1};
+    std::cout << "TESTTESTTESTTEST" << std::endl;
+    v::DVec<3> wtest = pose.toWorldCoords(test);
+    std::cout << test << "becomes " << wtest << std::endl;
+    test = pose.fromWorldCoords(wtest);
+    std::cout << "and back to " << test << std::endl;
+    wtest = pose.p + pose.toRotationMatrix() * test;
+    std::cout << "and using the rotation matrix: " << wtest << std::endl;
+    test = wtest - pose.p;
+    test = pose.toRotationMatrix().transpose() * test;
+    std::cout << "and back to " << test << std::endl;
+    */
+
+    for (int spam = 0; spam < 10; spam++) {
+      solver.step(0.003);
+    }
     for (std::size_t i = 0; i < world.numObjs(); i++) {
       world.getObj(i).exportAllTriangles(sd, fun);
     }
