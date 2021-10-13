@@ -79,10 +79,10 @@ struct Contact {
   v::DVec<3> p, n;
 
   Contact lo(const Contact &c) const {
-    if (dist > 0) {
+    if (dist >= 0) {
       return dist < c.dist ? *this : c;
     }
-    if (c.dist > 0) {
+    if (c.dist >= 0) {
       return *this;
     }
     return dist < c.dist ? c : *this;
@@ -174,13 +174,23 @@ struct OBB {
         for (int m2 = 0; m2 < 2; m2++) {
           v::DVec<3> pp =
               o.b + m1 * o.s[d2] * o.dirD(d2) + m2 * o.s[d3] * o.dirD(d3);
-          ret = ret.hi(deepestAlongSeg(u, pp, pp + o.s[d1] * o.dirD(d1)));
+          Contact tmp = deepestAlongSeg(u, pp, pp + o.s[d1] * o.dirD(d1));
+          ret = ret.hi(tmp);
+          std::cout << "deepest. tmp: " << tmp.dist << std::endl;
+          if (tmp.dist < 0) {
+            std::cout << tmp.p << tmp.n << std::endl;
+          }
         }
       }
     }
     if (flipN) {
       ret.n = -ret.n;
     }
+    std::cout << "returning: " << ret.dist << std::endl;
+    if (ret.dist < 0) {
+      std::cout << ret.p << ret.n << std::endl;
+    }
+    std::cout << std::endl;
     return ret;
   }
   v::DVec<3> dirD(int i) const {
@@ -197,16 +207,25 @@ struct OBB {
   // normal will point away from *this
   Contact deepestAlongSeg(const v::DVec<3> &u, v::DVec<3> p,
                           v::DVec<3> q) const {
+    std::cout << "deepestAlongSeg: " << u << p << q << std::endl;
     if (v::dot(p, u) < v::dot(q, u)) {
       v::DVec<3> tmp = p;
       p = q;
       q = tmp;
     }
     v::DVec<3> d = q - p;
-    double dd[] = {v::dot(d, x), v::dot(d, y), v::dot(d, z)};
-    double pp[] = {v::dot(p, x), v::dot(p, y), v::dot(p, z)};
+    v::DVec<3> dd = {v::dot(d, x), v::dot(d, y), v::dot(d, z)};
+    v::DVec<3> pp = {v::dot(p, x), v::dot(p, y), v::dot(p, z)};
+    std::cout << "a, c, dd, pp: " << a << c << dd << pp << std::endl;
     double lo = 0, hi = 1;
     for (int ind = 0; ind < 3; ind++) {
+      if (-1e-3 < dd[ind] && dd[ind] < 1e-3) {
+        if ((a[ind] < pp[ind]) ^ (pp[ind] < c[ind])) {
+          Contact ret;
+          ret.dist = 100;
+          return ret;
+        }
+      }
       double tlo = (a[ind] - pp[ind]) / dd[ind];
       double thi = (c[ind] - pp[ind]) / dd[ind];
       if (tlo > thi) {
@@ -217,8 +236,9 @@ struct OBB {
         hi = std::fmin(hi, thi);
       }
     }
+    std::cout << "lo, hi: " << lo << " " << hi << std::endl;
     if (hi >= 1 || hi >= 1 - lo) {
-      return {(1 - lo) * v::dot(d, u), q, u};
+      return {(1 - lo) * v::dot(d, u), p + hi * q, u};
     }
     return {hi * v::dot(d, u), p + lo * d, -u};
   }
@@ -249,12 +269,7 @@ struct OBBIntersector {
   bool vc(const v::DVec<3> &u) {
     v::DVec<2> a = p.extrema(u);
     v::DVec<2> b = q.extrema(u);
-    double forD = a[0] - b[1];
-    double bakD = b[0] - a[1];
-    if (forD < 0 && bakD < 0) {
-      return false;
-    }
-    return true;
+    return a[0] > b[1] || a[1] < b[0];
   }
   Contact getInts() {
     if (vc(p.x) || vc(p.y) || vc(p.z) || vc(q.x) || vc(q.y) || vc(q.z) ||
@@ -265,15 +280,20 @@ struct OBBIntersector {
       ret.dist = 10; // junk
       return ret;
     }
-    // now, now, let's find the actual contact point and normal.
-
+    // I'm not even trying to make this even remotely optimized
     Contact ret;
+    ret.dist = 100;
     ret = ret.lo(p.deepest(q.x, q, true));
     ret = ret.lo(p.deepest(q.y, q, true));
     ret = ret.lo(p.deepest(q.z, q, true));
     ret = ret.lo(q.deepest(p.x, p, false));
     ret = ret.lo(q.deepest(p.y, p, false));
     ret = ret.lo(q.deepest(p.z, p, false));
+
+    std::cout << "after vertices. ret: " << ret.dist << std::endl;
+    if (ret.dist < 0) {
+      std::cout << ret.p << ret.n << std::endl;
+    }
 
     ret = ret.lo(q.deepest(ee(p.x, q.x), p, false));
     ret = ret.lo(q.deepest(ee(p.x, q.y), p, false));
