@@ -11,6 +11,7 @@ template <class Tag> struct Prism {
 
   PhysInfo pi;
 
+  bool doRender = true;
   Tag tag;
   bool meshed = false;
 
@@ -101,7 +102,11 @@ template <class Tag> struct Prism {
         +s2x, -s2y, +s2z, c[5].f, // 3
         +s2x, +s2y, +s2z, c[7].f, // 2
     };
-    fun(tag, triangles, sizeof(triangles) / sizeof(float));
+    if (doRender) {
+      fun(tag, triangles, sizeof(triangles) / sizeof(float));
+    } else {
+      fun(tag, 0, 0);
+    }
     meshed = true;
   }
 };

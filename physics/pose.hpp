@@ -1,6 +1,8 @@
 #ifndef ROLLER_PHYSICS_POSE_HPP_
 #define ROLLER_PHYSICS_POSE_HPP_
 
+#include <cmath>
+
 #include "util.hpp"
 
 namespace roller {
@@ -13,6 +15,26 @@ v::DVec<4> quaternionMult(const v::DVec<4> &a, const v::DVec<4> &b) {
           a[0] * b[1] + a[1] * b[0] + a[2] * b[3] - a[3] * b[2],
           a[0] * b[2] - a[1] * b[3] + a[2] * b[0] + a[3] * b[1],
           a[0] * b[3] + a[1] * b[2] - a[2] * b[1] + a[3] * b[0]};
+}
+// Source: https://stackoverflow.com/a/12934750
+v::DVec<4> normalizeQuaternion(const v::DVec<4> &q) {
+  double sqmag = v::norm2(q);
+  if ((1 - 2.10735e-8) < sqmag && sqmag < (1 + 2.10735e-8)) {
+    return (2 / (1 + sqmag)) * q;
+  }
+  return q * fastInvSqrt(sqmag);
+}
+// basically applies 2 * w to q
+v::DVec<4> applyDAngVelo(const v::DVec<4> &q, const v::DVec<3> &w) {
+  double wnorm2 = v::norm2(w);
+  // XXX: FIND WHAT THIS NUMBER SHOULD ACTUALLY BE
+  if (wnorm2 < 0.05) {
+    return normalizeQuaternion(q + quaternionMult(q, {0, w[0], w[1], w[2]}));
+  }
+  // XXX: USE FAST ALGORITHMS FOR THESE
+  double wnorm = std::sqrt(wnorm2);
+  w *= std::sin(wnorm) / wnorm;
+  return quaternionMult(q, {std::cos(wnorm), w[0], w[1], w[2]});
 }
 
 struct Pose {

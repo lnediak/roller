@@ -54,6 +54,8 @@ int main() {
   world.objs.emplace_back(v::DVec<3>{20, 1, 10}, v::DVec<3>{0, 33, 0}, 0);
   world.objs.emplace_back(v::DVec<3>{1, 30, 10}, v::DVec<3>{-20, 33, 0}, 0);
   world.objs.emplace_back(v::DVec<3>{1, 30, 10}, v::DVec<3>{20, 33, 0}, 0);
+  world.objs.emplace_back(v::DVec<3>{20, 1, 10}, v::DVec<3>{0, 0, 0}, 0);
+  world.objs.back().doRender = false;
   // world.objs.emplace_back(v::DVec<3>{1, 2, 1}, v::DVec<3>{0, 8, 2}, 1);
   roller::Solver<decltype(world) &> solver(world, 5);
 

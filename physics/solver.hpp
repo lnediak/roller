@@ -9,24 +9,13 @@
 namespace roller {
 
 /// A "W" implementation for a single type of object
-template <class Obj> struct OneObjWorld {
+template <class Obj> struct OneObjW {
   std::vector<Obj> objs;
 
   std::size_t numObjs() const { return objs.size(); }
   Obj &getObj(std::size_t i) { return objs[i]; }
 };
 
-/**
-  W template: All this needs two functions:
-  std::size_t numObjs() const, and
-  Obj &getObj(std::size_t).
-
-  Obj template: This needs a little more:
-  PhysInfo getPhysInfo() const,
-  void setPhysInfo(const PhysInfo &pi),
-  AABB getAABB() const, and
-  Contact getContact(Obj other) const.
-*/
 template <class W> class Solver {
 
   World<W> w;
@@ -67,7 +56,7 @@ public:
     }
   }
 
-  void processCollision(const Collision &col) {
+  void processCollision(const Collision &col, double elasticity) {
     int i = col.i;
     int j = col.j;
     v::DVec<3> pos = col.c.p;
@@ -80,6 +69,9 @@ public:
       return;
     }
     double el = std::min(p[i].el, p[j].el);
+    if (elasticity < 1) {
+      el = elasticity;
+    }
     v::DVec<3> lhs = -el * ureln * n - urel;
     double mi = p[i].massi + p[j].massi;
     v::DVec<3> r1 = pos - p[i].pose.p;
@@ -147,7 +139,28 @@ public:
       for (std::size_t i = 0; i < numObjs; i++) {
         p[i].pose = porig[i].pose;
         x[i] = p[i].getAuxInfo();
-        p[i].stepTime(x[i], dt, g, false);
+        p[i].stepTime(x[i], dt, g);
+        x[i] = p[i].getAuxInfo();
+        w.getObj(i).setPhysInfo(p[i]);
+      }
+      w.exportAllAABBInts([this](int i, int j) -> void { addCollision(i, j); });
+      if (cols.empty()) {
+        break;
+      }
+      for (const Collision &col : cols) {
+        processCollision(col, 1);
+      }
+    }
+    for (std::size_t i = 0; i < numObjs; i++) {
+      p[i].pose = porig[i].pose;
+      p[i].stepVelo(dt, g);
+    }
+    // contact resolution passes
+    for (int spam = 0; spam < 5; spam++) {
+      for (std::size_t i = 0; i < numObjs; i++) {
+        p[i].pose = porig[i].pose;
+        x[i] = p[i].getAuxInfo();
+        p[i].stepTime(x[i], dt, 0);
         x[i] = p[i].getAuxInfo();
         w.getObj(i).setPhysInfo(p[i]);
       }
@@ -157,14 +170,13 @@ public:
       }
       for (const Collision &col : cols) {
         std::cout << "COLLISION?????" << std::endl;
-        processCollision(col);
+        processCollision(col, 0);
       }
     }
-    // TODO: CONTACT HANDLING
     for (std::size_t i = 0; i < numObjs; i++) {
       p[i].pose = porig[i].pose;
       x[i] = p[i].getAuxInfo();
-      p[i].stepTime(x[i], dt, g, true);
+      p[i].stepTime(x[i], dt, 0);
       w.getObj(i).setPhysInfo(p[i]);
     }
   }
