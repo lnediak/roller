@@ -32,7 +32,7 @@ template <class Obj> class CoalescedObj {
     v::DVec<3> cm = 0; // center of mass
     bool fat = false;
     for (const Obj &o : objs) {
-      PhysInfo &opi = o->getPhysInfo();
+      PhysInfo &opi = o->physInfo();
       double m = opi.mass;
       v::DVec<3> c = opi.pose.p;
       if (!m) {
@@ -59,7 +59,7 @@ template <class Obj> class CoalescedObj {
     DMat3x3 iner = {{0, 0, 0}, {0, 0, 0}, {0, 0, 0}};
     v::DVec<3> tam = {0, 0, 0};
     for (const Obj &o : objs) {
-      PhysInfo &opi = o->getPhysInfo();
+      PhysInfo &opi = o->physInfo();
       // to store relative positions...
       opi.pose.p -= cm;
       if (!fat) {
@@ -81,12 +81,12 @@ template <class Obj> class CoalescedObj {
 public:
   CoalescedObj(const std::vector<Obj *> &objs) : objs(objs) { evalPhysInfo(); }
 
-  void addObj0(Obj *obj) {
+  void addObj(Obj *obj) {
     objs.push_back(obj);
     if (!pi.mass) {
       return;
     }
-    PhysInfo &opi = obj->getPhysInfo();
+    PhysInfo &opi = obj->physInfo();
     if (!opi.mass) {
       pi.mass = pi.massi = 0;
       pi.pose.p = opi.pose.p;
@@ -111,10 +111,12 @@ public:
               adjustCenter(opi.getAuxInfo().riner, opi.mass, -opi.pose.p);
     pi.ineri = pi.iner.inverse();
   }
+
   void removeObj(std::size_t i) {
-    PhysInfo opi = objs[i].getPhysInfo();
-    objs[i].getPhysInfo().pose.p += pi.pose.p;
-    objs[i].getPhysInfo().pose.q = quaternionMult(pi.pose.q, opi.pose.q);
+    PhysInfo &opiref = objs[i].physInfo();
+    PhysInfo opi = opiref;
+    opiref.pose.p += pi.pose.p;
+    opiref.pose.q = quaternionMult(pi.pose.q, opi.pose.q);
 
     objs.erase(objs.begin() + i);
     if (!opi.mass) {
@@ -139,6 +141,7 @@ public:
         pi.mass, pi.pose.fromShiftWorldCoords(pi.pose.p - origP));
     pi.ineri = pi.iner.inverse();
   }
+  void removeObj(Obj *obj) { removeObj(objs.find(obj) - objs.begin()); }
 };
 
 } // namespace roller

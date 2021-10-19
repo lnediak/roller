@@ -1,7 +1,11 @@
 #ifndef ROLLER_PHYSICS_BROAD_PHASE_HPP_
 #define ROLLER_PHYSICS_BROAD_PHASE_HPP_
 
-#include "phys_info.hpp"
+#include <algorithm>
+#include <unordered_set>
+#include <vector>
+
+#include "aabb.hpp"
 
 namespace roller {
 
