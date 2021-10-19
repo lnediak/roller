@@ -29,18 +29,27 @@ struct PhysInfo {
   PhysInfo() {}
   PhysInfo(double massi, const DMat3x3 &ineri)
       : mass(massi < 1e-12 ? 0 : 1 / massi), massi(massi),
-        iner(massi < 1e-12 ? {{0, 0, 0}, {0, 0, 0}, {0, 0, 0}}
+        iner(massi < 1e-12 ? DMat3x3{{0, 0, 0}, {0, 0, 0}, {0, 0, 0}}
                            : ineri.inverse()),
         ineri(ineri) {}
 
   void updateAuxRotInfo(AuxPhysInfo &aux) const {
     aux.rot = pose.toRotationMatrix();
-    aux.riner = aux.rot * ineri * aux.rot.transpose();
-    aux.omega = aux.riner * am;
+    if (mass) {
+      aux.riner = aux.rot * ineri * aux.rot.transpose();
+      aux.omega = aux.riner * am;
+    } else {
+      aux.riner = ineri;
+      aux.omega = {0, 0, 0};
+    }
   }
   AuxPhysInfo getAuxInfo() const {
     AuxPhysInfo ret;
-    ret.velo = massi * lm;
+    if (mass) {
+      ret.velo = massi * lm;
+    } else {
+      ret.velo = {0, 0, 0};
+    }
     updateAuxRotInfo(ret);
     return ret;
   }
@@ -57,7 +66,7 @@ struct PhysInfo {
       return;
     }
     pose.p += dt * aux.velo;
-    pose.q = applyAngVelo(pose.q, 0.5 * dt * aux.omega);
+    pose.q = applyDAngVelo(pose.q, 0.5 * dt * aux.omega);
     if (updateAux) {
       updateAuxRotInfo(aux);
     }

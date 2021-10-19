@@ -125,8 +125,9 @@ v::DVec<16> genProjMat(const SliceDirs &sd) {
 // Source: https://www.lomont.org/papers/2003/InvSqrt.pdf
 double fastInvSqrt(double a) {
   double a2 = 0.5 * a;
-  long i = *(long *)a;
-  double b = *(float *)(0x5fe6ec85e7de30da - (i >> 1));
+  long i = *(long *)&a;
+  i = 0x5fe6ec85e7de30da - (i >> 1);
+  double b = *(double *)&i;
   b = b * (1.5 - a2 * b * b);
   b = b * (1.5 - a2 * b * b);
   return b;

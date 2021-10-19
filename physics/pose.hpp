@@ -27,14 +27,17 @@ v::DVec<4> normalizeQuaternion(const v::DVec<4> &q) {
 // basically applies 2 * w to q
 v::DVec<4> applyDAngVelo(const v::DVec<4> &q, const v::DVec<3> &w) {
   double wnorm2 = v::norm2(w);
+  if (wnorm2 < 1e-12) {
+    return q;
+  }
   // XXX: FIND WHAT THIS NUMBER SHOULD ACTUALLY BE
   if (wnorm2 < 0.05) {
     return normalizeQuaternion(q + quaternionMult(q, {0, w[0], w[1], w[2]}));
   }
   // XXX: USE FAST ALGORITHMS FOR THESE
   double wnorm = std::sqrt(wnorm2);
-  w *= std::sin(wnorm) / wnorm;
-  return quaternionMult(q, {std::cos(wnorm), w[0], w[1], w[2]});
+  v::DVec<3> ww = (std::sin(wnorm) / wnorm) * w;
+  return quaternionMult(q, {std::cos(wnorm), ww[0], ww[1], ww[2]});
 }
 
 struct Pose {
@@ -67,16 +70,21 @@ struct Pose {
     return matMult4x4(s, t);
   }
 
-  v::DVec<3> toWorldCoords(const v::DVec<3> &c) const {
+  v::DVec<3> toShiftWorldCoords(const v::DVec<3> &c) const {
     v::DVec<4> ch{0, c[0], c[1], c[2]};
     v::DVec<4> ro = quaternionMult(q, quaternionMult(ch, quaternionConj(q)));
-    return p + v::DVec<3>{ro[1], ro[2], ro[3]};
+    return v::DVec<3>{ro[1], ro[2], ro[3]};
   }
-  v::DVec<3> fromWorldCoords(const v::DVec<3> &c) const {
-    v::DVec<3> sc = c - p;
+  v::DVec<3> toWorldCoords(const v::DVec<3> &c) const {
+    return p + toShiftWorldCoords(c);
+  }
+  v::DVec<3> fromShiftWorldCoords(const v::DVec<3> &sc) const {
     v::DVec<4> sh{0, sc[0], sc[1], sc[2]};
     v::DVec<4> rh = quaternionMult(quaternionConj(q), quaternionMult(sh, q));
     return {rh[1], rh[2], rh[3]};
+  }
+  v::DVec<3> fromWorldCoords(const v::DVec<3> &c) const {
+    return fromShiftWorldCoords(c - p);
   }
 };
 
