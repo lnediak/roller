@@ -7,9 +7,11 @@
 
 namespace roller {
 
+/// Obj as defined in solver.hpp.
 template <class Obj> class CoalescedObj {
 
   std::vector<Obj *> objs;
+  std::vector<Pose> poses;
 
   PhysInfo pi;
 
@@ -32,7 +34,7 @@ template <class Obj> class CoalescedObj {
     v::DVec<3> cm = 0; // center of mass
     bool fat = false;
     for (const Obj &o : objs) {
-      PhysInfo &opi = o->physInfo();
+      PhysInfo opi = o->physInfo();
       double m = opi.mass;
       v::DVec<3> c = opi.pose.p;
       if (!m) {
@@ -59,13 +61,13 @@ template <class Obj> class CoalescedObj {
     DMat3x3 iner = {{0, 0, 0}, {0, 0, 0}, {0, 0, 0}};
     v::DVec<3> tam = {0, 0, 0};
     for (const Obj &o : objs) {
-      PhysInfo &opi = o->physInfo();
-      // to store relative positions...
-      opi.pose.p -= cm;
+      PhysInfo opi = o->physInfo();
+      poses.push_back(opi.pose);
+      v::DVec<3> relp = poses.back().p -= cm;
       if (!fat) {
-        iner += adjustCenter(opi.getAuxInfo().riner, opi.mass, -opi.pose.p);
+        iner += adjustCenter(opi.getAuxInfo().riner, opi.mass, -relp);
         tlm += opi.lm;
-        tam += opi.am + cross3(opi.pose.p, opi.lm);
+        tam += opi.am + cross3(relp, opi.lm);
       }
     }
     pi.lm = tlm;
@@ -81,16 +83,41 @@ template <class Obj> class CoalescedObj {
 public:
   CoalescedObj(const std::vector<Obj *> &objs) : objs(objs) { evalPhysInfo(); }
 
-  void addObj(Obj *obj) {
-    objs.push_back(obj);
-    if (!pi.mass) {
+  PhysInfo getPhysInfo() const { return pi; }
+  void updatePhysInfo0(PhysInfo &opi, const Pose &p) const {
+    opi.pose.p = p.p + pi.pose.p;
+    opi.pose.q = quaternionMult(pi.pose.q, p.q);
+  }
+  void updatePhysInfo(std::size_t i) {
+    PhysInfo opi = objs[i].physInfo();
+    updatePhysInfo0(opi, poses[i]);
+    objs[i].setPhysInfo(opi);
+  }
+  void setPhysInfo(const PhysInfo &ppi) {
+    if (v::norm2(pi.pose.p - ppi.pose.p) + v::norm2(pi.pose.q - ppi.pose.q) >=
+        1e-16) {
+      pi = ppi;
+      for (std::size_t i = 0, sz = objs.size(); i < sz; i++) {
+        updatePhysInfo(i);
+      }
       return;
     }
-    PhysInfo &opi = obj->physInfo();
+    pi = ppi;
+  }
+  // note: no doCCD, as that basically bypasses broad-phase, which is not good
+
+  void addObj(Obj *obj) {
+    PhysInfo opi = obj->physInfo();
+    objs.push_back(obj);
+    poses.push_back(opi.pose);
+    if (!pi.mass) {
+      poses.back().p -= pi.pose.p;
+      return;
+    }
     if (!opi.mass) {
       pi.mass = pi.massi = 0;
       pi.pose.p = opi.pose.p;
-      opi.pose.p = {0, 0, 0};
+      poses.back().p = {0, 0, 0};
       return;
     }
     pi.lm += opi.lm;
@@ -100,26 +127,24 @@ public:
     pi.massi = 1 / pi.mass;
 
     pi.pose.p = (origMass * pi.pose.p + opi.mass * opi.pose.p) * pi.massi;
-    opi.pose.p -= pi.pose.p;
-    pi.am +=
-        cross3(origP - pi.pose.p, pi.lm) + opi.am + cross3(opi.pose.p, opi.lm);
-    opi.pose.p = pi.pose.fromShiftWorldCoords(opi.pose.p);
-    opi.pose.q = quaternionMult(quaternionConj(pi.pose.q), opi.pose.q);
+    v::DVec<3> relp = opi.pose.p - pi.pose.p;
+    pi.am += cross3(origP - pi.pose.p, pi.lm) + opi.am + cross3(relp, opi.lm);
+    relp = poses.back().p = pi.pose.fromShiftWorldCoords(relp);
+    // this line is for the getAuxInfo to evaluate in the object space of *this
+    opi.pose.q = poses.back().q =
+        quaternionMult(quaternionConj(pi.pose.q), opi.pose.q);
 
     pi.iner = adjustCenter(pi.iner, origMass,
                            pi.pose.fromShiftWorldCoords(pi.pose.p - origP)) +
-              adjustCenter(opi.getAuxInfo().riner, opi.mass, -opi.pose.p);
+              adjustCenter(opi.getAuxInfo().riner, opi.mass, -relp);
     pi.ineri = pi.iner.inverse();
   }
 
   void removeObj(std::size_t i) {
-    PhysInfo &opiref = objs[i].physInfo();
-    PhysInfo opi = opiref;
-    opiref.pose.p += pi.pose.p;
-    opiref.pose.q = quaternionMult(pi.pose.q, opi.pose.q);
-
+    PhysInfo opi = objs[i].physInfo();
     objs.erase(objs.begin() + i);
-    if (!opi.mass) {
+    if (opi.massi < 1e-8) {
+      // in this case the stuff is unstable
       evalPhysInfo();
       return;
     }

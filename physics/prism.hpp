@@ -36,8 +36,7 @@ template <class Tag> struct Prism {
     return {mp, 2 * s2, rott.a, rott.b, rott.c};
   }
   AABB getAABB() const { return getOBB().getAABB(); }
-  PhysInfo getPhysInfo() const { return pi; }
-  void setPhysInfo(const PhysInfo &pi) { this->pi = pi; }
+  PhysInfo &physInfo() const { return pi; }
 
   Contact getContacts(const Prism &q) const {
     OBBIntersector inter(getOBB(), q.getOBB());

@@ -16,28 +16,38 @@ v::DVec<4> quaternionMult(const v::DVec<4> &a, const v::DVec<4> &b) {
           a[0] * b[2] - a[1] * b[3] + a[2] * b[0] + a[3] * b[1],
           a[0] * b[3] + a[1] * b[2] - a[2] * b[1] + a[3] * b[0]};
 }
+v::DVec<3> applyQuaternion(const v::DVec<3> &p, const v::DVec<4> &q) {
+  v::DVec<4> ch{0, p[0], p[1], p[2]};
+  v::DVec<4> ro = quaternionMult(q, quaternionMult(ch, quaternionConj(q)));
+  return {ro[1], ro[2], ro[3]};
+}
 // Source: https://stackoverflow.com/a/12934750
 v::DVec<4> normalizeQuaternion(const v::DVec<4> &q) {
   double sqmag = v::norm2(q);
   if ((1 - 2.10735e-8) < sqmag && sqmag < (1 + 2.10735e-8)) {
     return (2 / (1 + sqmag)) * q;
   }
-  return q * fastInvSqrt(sqmag);
+  return fastInvSqrt(sqmag) * q;
 }
-// basically applies 2 * w to q
-v::DVec<4> applyDAngVelo(const v::DVec<4> &q, const v::DVec<3> &w) {
+// yields a quaternion that represents constant angular rotation by w * 2
+v::DVec<4> getRotQuaternion(const v::DVec<3> &w) {
   double wnorm2 = v::norm2(w);
   if (wnorm2 < 1e-12) {
     return q;
   }
   // XXX: FIND WHAT THIS NUMBER SHOULD ACTUALLY BE
   if (wnorm2 < 0.05) {
-    return normalizeQuaternion(q + quaternionMult(q, {0, w[0], w[1], w[2]}));
+    // first-order Taylor approximation
+    return {1, w[0], w[1], w[2]};
   }
-  // XXX: USE FAST ALGORITHMS FOR THESE
+  // XXX: USE FAST ALGORITHMS FOR THESE SQRT AND SINC
   double wnorm = std::sqrt(wnorm2);
   v::DVec<3> ww = (std::sin(wnorm) / wnorm) * w;
-  return quaternionMult(q, {std::cos(wnorm), ww[0], ww[1], ww[2]});
+  return {std::cos(wnorm), ww[0], ww[1], ww[2]};
+}
+// applies getRotQuaternion(w) to q
+v::DVec<4> applyDAngVelo(const v::DVec<4> &q, const v::DVec<3> &w) {
+  return normalizeQuaternion(quaternionMult(getRotQuaternion(w), q));
 }
 
 struct Pose {
@@ -71,9 +81,7 @@ struct Pose {
   }
 
   v::DVec<3> toShiftWorldCoords(const v::DVec<3> &c) const {
-    v::DVec<4> ch{0, c[0], c[1], c[2]};
-    v::DVec<4> ro = quaternionMult(q, quaternionMult(ch, quaternionConj(q)));
-    return v::DVec<3>{ro[1], ro[2], ro[3]};
+    return applyQuaternion(c, q);
   }
   v::DVec<3> toWorldCoords(const v::DVec<3> &c) const {
     return p + toShiftWorldCoords(c);
