@@ -33,7 +33,7 @@ template <class Obj> class CoalescedObj {
     double tm = 0;     // total mass
     v::DVec<3> cm = 0; // center of mass
     bool fat = false;
-    for (const Obj &o : objs) {
+    for (const Obj *o : objs) {
       PhysInfo opi = o->physInfo();
       double m = opi.mass;
       v::DVec<3> c = opi.pose.p;
@@ -60,7 +60,7 @@ template <class Obj> class CoalescedObj {
     v::DVec<3> tlm = {0, 0, 0};
     DMat3x3 iner = {{0, 0, 0}, {0, 0, 0}, {0, 0, 0}};
     v::DVec<3> tam = {0, 0, 0};
-    for (const Obj &o : objs) {
+    for (const Obj *o : objs) {
       PhysInfo opi = o->physInfo();
       poses.push_back(opi.pose);
       v::DVec<3> relp = poses.back().p -= cm;
@@ -83,15 +83,24 @@ template <class Obj> class CoalescedObj {
 public:
   CoalescedObj(const std::vector<Obj *> &objs) : objs(objs) { evalPhysInfo(); }
 
-  PhysInfo getPhysInfo() const { return pi; }
+  AABB getAABB() const {
+    AABB ret = objs[0].getAABB();
+    for (std::size_t i = 1, sz = objs.size(); i < sz; i++) {
+      AABB tmp = objs[i].getAABB();
+      ret.m[0] = v::elementwiseMin(ret.m[0], tmp.m[0]);
+      ret.m[1] = v::elementwiseMin(ret.m[1], tmp.m[1]);
+    }
+    return ret;
+  }
+  PhysInfo physInfo() const { return pi; }
   void updatePhysInfo0(PhysInfo &opi, const Pose &p) const {
     opi.pose.p = p.p + pi.pose.p;
     opi.pose.q = quaternionMult(pi.pose.q, p.q);
   }
   void updatePhysInfo(std::size_t i) {
-    PhysInfo opi = objs[i].physInfo();
+    PhysInfo opi = objs[i]->physInfo();
     updatePhysInfo0(opi, poses[i]);
-    objs[i].setPhysInfo(opi);
+    objs[i]->setPhysInfo(opi);
   }
   void setPhysInfo(const PhysInfo &ppi) {
     if (v::norm2(pi.pose.p - ppi.pose.p) + v::norm2(pi.pose.q - ppi.pose.q) >=
@@ -102,7 +111,6 @@ public:
       }
       return;
     }
-    pi = ppi;
   }
   // note: no doCCD, as that basically bypasses broad-phase, which is not good
 

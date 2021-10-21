@@ -77,8 +77,8 @@ bool doCollisionResponse(const Contact &con, PhysInfo &api, PhysInfo &bpi,
   and the hardest one (needs to handle screw motion):
 
   template <class Fun1, class Fun2>
-  Contact doCCD(double velo1, double omega1, v::DVec<3> c1, const Obj &other,
-  double velo2, double omega2, v::DVec<3> c2)
+  Contact doCCD(double velo1, v::DVec<3> omega1, v::DVec<3> c1, const Obj
+  &other, double velo2, v::DVec<3> omega2, v::DVec<3> c2)
     - returns a Contact where 0<=c.t<=1, and for no contact, c.t can be any
       value >1. *this is considered to be travelling in screw motion with
       primary velocity velo1, and with circular portion around
@@ -87,6 +87,7 @@ bool doCollisionResponse(const Contact &con, PhysInfo &api, PhysInfo &bpi,
 */
 template <class Obj> class RotCCDSolver {
 
+  // XXX: cache physinfo/auxphysinfo
   std::vector<Obj> objs;
   std::vector<CoalescedObj<Obj>> cobjs;
   /// has same sz as objs, if positive is index in cobjs
@@ -98,44 +99,83 @@ template <class Obj> class RotCCDSolver {
     Contact c;
     int i, j;
   };
+  struct CollisionOrder {
+    bool operator()(const Collision &a, const Collision &b) const noexcept {
+      return a.c.t < b.c.t;
+    }
+  };
 
   // temporaries:
+  std::size_t cobjsOldSz;
   // same as trueObjs, but with the temporary coalescing
   std::vector<int> tmpObjs;
-  std::vector<PhysInfo> p;
-  std::vector<AuxPhysInfo> x;
-  std::unordered_set<Collision> cols; // collisions
+  std::set<Collision, CollisionOrder> cols; // collisions
 
 public:
   RotCCDSolver(W &&w, double g) : w(std::forward<W>(w)), g(g) {}
+
+  PhysInfo getBasePhysInfo(int i) const {
+    int oi = tmpObjs[i];
+    return oi < 0 ? objs[i].physInfo() : cobjs[oi].physInfo();
+  }
+  void setBasePhysInfo(int i, const PhysInfo &pi) const {
+    int oi = tmpObjs[i];
+    if (oi < 0) {
+      objs[i].setPhysInfo(pi);
+    } else {
+      cobjs[oi].setPhysInfo(pi);
+    }
+  }
 
   void checkCollision(double dt, int i, int j) {
     if (!p[i].mass && !p[j].mass) {
       return;
     }
-    auto &o1 = objs[i];
-    auto &o2 = objs[j];
-    Contact c = o1.doCCD(o2, dt);
-    if (c.t > dt) {
+    PhysInfo pi1 = getBasePhysInfo(i);
+    PhysInfo pi2 = getBasePhysInfo(j);
+    AuxPhysInfo pi1a = pi1.getAuxInfo();
+    AuxPhysInfo pi2a = pi2.getAuxInfo();
+    Contact c =
+        objs[i].doCCD(dt * pi1a.velo, dt * pi1a.omega, pi1.pose.p, objs[j],
+                      dt * pi2a.velo, dt * pi2a.omega, pi2.pose.p);
+    if (c.t > 1) {
       return;
     }
-    cols.push_back({c, i, j});
+    c.t *= dt;
+    cols.insert({c, i, j});
   }
 
   /// returns true when no collisions
   bool processCollisions(double &time) {
-    std::vector<decltype(cols.cend())> erasureList;
+    std::vector<decltype(cols.cbegin())> erasureList;
+    // since cols is std::set, this will start from the earliest collision
     for (auto iter = cols.cbegin(), iter_end = cols.cend(); iter != iter_end;
          ++iter) {
       const Collision &col = *iter;
       int i = col.i;
       int j = col.j;
-      if (doCollisionResponse(col.c, p[i], p[j], x[i], x[j],
-                              objs[i].getSurfaceDetail(objs[j]))) {
+      PhysInfo pii = getBasePhysInfo(i);
+      PhysInfo pij = getBasePhysInfo(j);
+      AuxPhysInfo auxi = pii.getAuxInfo(), auxj = pij.getAuxInfo();
+      if (doCollisionResponse(col.c, pii, pij, auxi, auxj,
+                              objs[i].getSurfaceDetail(objs[j], col.c.p))) {
         time += col.c.t;
         for (std::size_t ii = 0, sz = objs.size(); ii < sz; ii++) {
-          if (ii != i && ii != j) {
-            p[ii].stepTime<true>(x[ii], col.c.t);
+          if (ii != i && ii != j && tmpObjs[ii] < 0) {
+            PhysInfo tmp = objs[ii].physInfo();
+            AuxPhysInfo taux = tmp.getAuxInfo();
+            tmp.stepTime<false>(taux, col.c.t);
+            objs[ii].setPhysInfo(tmp);
+          }
+        }
+        int iin = tmpObjs[i];
+        int jjn = tmpObjs[j];
+        for (std::size_t ii = 0, sz = cobjs.size(); ii < sz; ii++) {
+          if (ii != iin && ii != jjn) {
+            PhysInfo tmp = co.physInfo();
+            AuxPhysInfo taux = tmp.getAuxInfo();
+            tmp.stepTime<false>(taux, col.c.t);
+            co.setPhysInfo(tmp);
           }
         }
         return false;
