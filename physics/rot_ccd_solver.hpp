@@ -90,7 +90,7 @@ template <class Obj> class RotCCDSolver {
   // XXX: cache physinfo/auxphysinfo
   std::vector<Obj> objs;
   std::vector<CoalescedObj<Obj>> cobjs;
-  /// has same sz as objs, if positive is index in cobjs
+  /// has same sz as objs, if nonnegative is index in cobjs
   std::vector<int> trueObjs;
 
   double g; // acceleration of gravity
@@ -106,7 +106,6 @@ template <class Obj> class RotCCDSolver {
   };
 
   // temporaries:
-  std::size_t cobjsOldSz;
   // same as trueObjs, but with the temporary coalescing
   std::vector<int> tmpObjs;
   std::set<Collision, CollisionOrder> cols; // collisions
@@ -189,11 +188,9 @@ public:
     return true;
   }
 
-  // FIXME: REWRITE
   void step(double dt) {
     cols.clear();
-    // collision resolution passes
-    for (int spam = 0; spam < 5; spam++) {
+    while (/**/) {
       for (std::size_t i = 0; i < numObjs; i++) {
         p[i].pose = porig[i].pose;
         x[i] = p[i].getAuxInfo();

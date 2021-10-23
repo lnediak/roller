@@ -2,6 +2,7 @@
 #define ROLLER_PHYSICS_CCD_NARROW_HPP_
 
 #include "obb.hpp"
+#include "pose.hpp"
 #include "util.hpp"
 
 namespace roller {
@@ -62,7 +63,7 @@ struct CCDOBBIntersector {
     interval where t0>t1. Guaranteed is no intersection from 0<=t<=t0, between
     [a0,a1] and [b0+t*relVelo,b1+t*relVelo], and df1=a0-b1,df2=a1-b0
   */
-  static v::DVec<3> intervalInts(double relVelo, double df1, double df2) {
+  static v::DVec<3> intervalInt(double relVelo, double df1, double df2) {
     double min = 1, max = 0, depth = 0;
     // note that df2-df1=a1-a0+b1-b0>0 so df2>df1
     if (df1 <= 0 && df2 >= 0) {
@@ -91,9 +92,9 @@ struct CCDOBBIntersector {
   }
 
 private:
-  // just a helper for getInts
+  // just a helper for getInt
   struct AxisIDetail {
-    double tmin, tmax, depth;
+    double tmin, tmax, depth; /// note: tmin and depth cannot both be nonzero
     v::DVec<3> n;
     int type, index;
   };
@@ -125,7 +126,7 @@ private:
 public:
   // TODO: OPTIMIZE THE BELOW BY CHANGING BASES
   /// we suppose that p moves linearly by pt, and q by qt
-  Contact getInts(const v::DVec<3> &pt, const v::DVec<3> &qt) {
+  Contact getInt(const v::DVec<3> &pt, const v::DVec<3> &qt) {
     v::DVec<3> pA[] = {p.x, p.y, p.z}; // p vert-face
     v::DVec<3> qA[] = {q.x, q.y, q.z}; // q vert-face
     v::DVec<3> eA[] = {ee(p.x, q.x), ee(p.x, q.y), ee(p.x, q.z),
@@ -134,12 +135,12 @@ public:
     v::DVec<3> relVelo = qt - pt;
 
     Contact ret;
-    AxisIDetail main{-1, 1e9, {0, 0, 0}, 0, 0};
+    AxisIDetail main{-1, 1e9, 1e9, {0, 0, 0}, 0, 0};
     for (int i = 0; i < 3; i++) {
       v::DVec<2> a = p.extrema(pA[i]);
       v::DVec<2> b = q.extrema(pA[i]);
       double tmpRel = v::dot(pA[i], relVelo);
-      v::DVec<3> mm = intervalInts(tmpRel, a[0] - b[1], a[1] - b[0]);
+      v::DVec<3> mm = intervalInt(tmpRel, a[0] - b[1], a[1] - b[0]);
       // we don't use the index anyway in this case
       if (updateAID({mm[0], mm[1], mm[2],
                      tmpRel > 0 ? pA[i] : v::DVec<3>(-pA[i]), 0, 0},
@@ -149,7 +150,7 @@ public:
       a = p.extrema(qA[i]);
       b = q.extrema(qA[i]);
       tmpRel = v::dot(qA[i], relVelo);
-      mm = intervalInts(tmpRel, a[0] - b[1], a[1] - b[0]);
+      mm = intervalInt(tmpRel, a[0] - b[1], a[1] - b[0]);
       if (updateAID({mm[0], mm[1], mm[2],
                      tmpRel > 0 ? pA[i] : v::DVec<3>(-pA[i]), 1, 0},
                     main)) {
@@ -165,7 +166,7 @@ public:
       v::DVec<2> a = p.extrema(eA[i]);
       v::DVec<2> b = q.extrema(eA[i]);
       double tmpRel = v::dot(eA[i], relVelo);
-      v::DVec<2> mm = intervalInts(tmpRel, a[0] - b[1], a[1] - b[0]);
+      v::DVec<3> mm = intervalInt(tmpRel, a[0] - b[1], a[1] - b[0]);
       if (updateAID({mm[0], mm[1], mm[2],
                      tmpRel > 0 ? eA[i] : v::DVec<3>(-eA[i]), 2, i},
                     main)) {
@@ -227,9 +228,9 @@ struct CCDRotOBBIntersector {
   v::DVec<4> smolRot2[MAX_LEVELS];
 
   /// the pose.p is the OBB's b, not the center of mass
-  CCDRotOBBIntersector(const Pose &p, v::DVec<3> ps, double omega1,
+  CCDRotOBBIntersector(const Pose &p, v::DVec<3> ps, v::DVec<3> omega1,
                        v::DVec<3> pc, const Pose &q, v::DVec<3> qs,
-                       double omega2, v::DVec<3> qc, double tol)
+                       v::DVec<3> omega2, v::DVec<3> qc, double tol)
       : ps(ps), qs(qs), p(p), q(q), w1(omega1 / 2), w2(omega2 / 2), pc(pc),
         qc(qc), tol(tol) {
     states[0].u1 = p.q;
@@ -252,6 +253,15 @@ struct CCDRotOBBIntersector {
     }
   }
 
+  // just the obb.b of both
+  void updateOBBs(v::DVec<3> np, v::DVec<3> nps, v::DVec<3> nq,
+                  v::DVec<3> nqs) {
+    p.p = np;
+    ps = nps;
+    q.p = nq;
+    qs = nqs;
+  }
+
   static void setOBBOrientation(const Pose &pose, OBB &obb) {
     DMat3x3 ro = pose.toRotationMatrix().transpose();
     obb.x = ro.a;
@@ -259,6 +269,13 @@ struct CCDRotOBBIntersector {
     obb.z = ro.c;
   }
   static OBB poseToOBB(const Pose &pose, const v::DVec<3> &sl) {
+    struct Swap {
+      void operator()(double &a, double &b) const {
+        double tmp = a;
+        a = b;
+        b = tmp;
+      }
+    } swap;
     OBB ret;
     setOBBOrientation(pose, ret);
     ret.b = pose.p;
@@ -313,7 +330,7 @@ struct CCDRotOBBIntersector {
     }
   }
   /// pv and qv are velocities
-  Contact getInts(v::DVec<3> pv, v::DVec<3> qv) {
+  Contact getInt(v::DVec<3> pv, v::DVec<3> qv) {
     std::vector<Subdiv> stack;
     v::DVec<4> tmpw1 = smolRot1[0];
     v::DVec<4> tmpw2 = smolRot2[0];
@@ -368,7 +385,7 @@ struct CCDRotOBBIntersector {
       obb2.b -= errq;
       obb2.s += err2q;
 
-      Contact contact = inn.getInts(pvelo, qvelo);
+      Contact contact = inn.getInt(pvelo, qvelo);
       if (contact.t <= 1) {
         if ((errp < tol && errq < tol) || (subdivm.lvl + 1 >= MAX_LEVELS)) {
           return contact;

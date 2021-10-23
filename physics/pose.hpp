@@ -33,7 +33,7 @@ v::DVec<4> normalizeQuaternion(const v::DVec<4> &q) {
 v::DVec<4> getRotQuaternion(const v::DVec<3> &w) {
   double wnorm2 = v::norm2(w);
   if (wnorm2 < 1e-12) {
-    return q;
+    return {1, 0, 0, 0};
   }
   // XXX: FIND WHAT THIS NUMBER SHOULD ACTUALLY BE
   if (wnorm2 < 0.05) {
