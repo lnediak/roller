@@ -30,14 +30,12 @@ struct CCDOBBIntersector {
 
   /// only sets position and sidelength
   void setOBBs(OBB pp, OBB qq) {
-    pp.x = p.x;
-    pp.y = p.y;
-    pp.z = p.z;
-    qq.x = q.x;
-    qq.y = q.y;
-    qq.z = q.z;
-    p = OBB(pp.b, pp.s, pp.x, pp.y, pp.z);
-    q = OBB(qq.b, qq.s, qq.x, qq.y, qq.z);
+    p.b = pp.b;
+    p.s = pp.s;
+    q.b = qq.b;
+    q.s = qq.s;
+    p.properify();
+    q.properify();
   }
 
   v::DVec<3> ee(const v::DVec<3> &a, const v::DVec<3> &b) {
@@ -60,7 +58,7 @@ struct CCDOBBIntersector {
   /**
     Returns [t0,t1,d] where t0 is intersection time (clamped to 0), t1 is exit
     time, and d is penetration depth. If no intersection with t>=0, returns an
-    interval where t0>t1. Guaranteed is no intersection from 0<=t<=t0, between
+    interval where t0>t1. Guaranteed is no intersection from 0<=t<t0, between
     [a0,a1] and [b0+t*relVelo,b1+t*relVelo], and df1=a0-b1,df2=a1-b0
   */
   static v::DVec<3> intervalInt(double relVelo, double df1, double df2) {
@@ -99,6 +97,10 @@ private:
     int type, index;
   };
   static bool updateAID(const AxisIDetail &tmp, AxisIDetail &main) {
+    std::cout << "tmp.tmin,tmp.tmax,tmp.depth,tmp.n: " << tmp.tmin << " "
+              << tmp.tmax << " " << tmp.depth << " " << tmp.n << std::endl;
+    std::cout << "main.tmin,main.tmax,main.depth,main.n: " << main.tmin << " "
+              << main.tmax << " " << main.depth << " " << main.n << std::endl;
     if (tmp.tmin > tmp.tmax) {
       main = tmp;
       return true;
@@ -112,6 +114,10 @@ private:
         main.n = tmp.n;
         main.type = tmp.type;
         main.index = tmp.index;
+        if (main.tmin > main.tmax) {
+          main.tmin = 1e9;
+          return true;
+        }
       }
     } else if (main.tmin == tmp.tmin) {
       if (main.tmax > tmp.tmax) {
@@ -119,6 +125,10 @@ private:
       }
     } else if (main.tmax > tmp.tmax) {
       main.tmax = tmp.tmax;
+      if (main.tmin > main.tmax) {
+        main.tmin = 1e9;
+        return true;
+      }
     }
     return false;
   }
@@ -127,6 +137,7 @@ public:
   // TODO: OPTIMIZE THE BELOW BY CHANGING BASES
   /// we suppose that p moves linearly by pt, and q by qt
   Contact getInt(const v::DVec<3> &pt, const v::DVec<3> &qt) {
+    std::cout << "ENTERING!!" << std::endl;
     v::DVec<3> pA[] = {p.x, p.y, p.z}; // p vert-face
     v::DVec<3> qA[] = {q.x, q.y, q.z}; // q vert-face
     v::DVec<3> eA[] = {ee(p.x, q.x), ee(p.x, q.y), ee(p.x, q.z),
@@ -141,6 +152,8 @@ public:
       v::DVec<2> b = q.extrema(pA[i]);
       double tmpRel = v::dot(pA[i], relVelo);
       v::DVec<3> mm = intervalInt(tmpRel, a[0] - b[1], a[1] - b[0]);
+      std::cout << "a,b,tmpRel,mm: " << a << b << tmpRel << " " << mm
+                << std::endl;
       // we don't use the index anyway in this case
       if (updateAID({mm[0], mm[1], mm[2],
                      tmpRel > 0 ? pA[i] : v::DVec<3>(-pA[i]), 0, 0},
@@ -152,7 +165,7 @@ public:
       tmpRel = v::dot(qA[i], relVelo);
       mm = intervalInt(tmpRel, a[0] - b[1], a[1] - b[0]);
       if (updateAID({mm[0], mm[1], mm[2],
-                     tmpRel > 0 ? pA[i] : v::DVec<3>(-pA[i]), 1, 0},
+                     tmpRel > 0 ? qA[i] : v::DVec<3>(-qA[i]), 1, 0},
                     main)) {
         break;
       }
@@ -160,6 +173,7 @@ public:
     if (main.tmin > main.tmax) {
       ret.t = main.tmin;
       ret.n = main.n;
+      std::cout << "kek1: " << ret.t << std::endl;
       return ret;
     }
     for (int i = 0; i < 9; i++) {
@@ -176,6 +190,7 @@ public:
     ret.t = main.tmin;
     ret.n = main.n;
     if (main.tmin > main.tmax) {
+      std::cout << "kek2: " << ret.t << std::endl;
       return ret;
     }
     ret.d = main.depth;
@@ -186,15 +201,22 @@ public:
     qq.b += ret.t * qt;
     switch (main.type) {
     case 0:
-      ret.p = qq.maximize(ret.n);
+      std::cout << "HERE WE GO! " << qq.maximize(ret.n) << " " << qt
+                << std::endl;
+      ret.p = qq.maximize(ret.n) + ret.t * qt;
       return ret;
     case 1:
-      ret.p = pp.maximize(-ret.n);
+      std::cout << "maybe???! " << pp.maximize(-ret.n) << " " << pt
+                << std::endl;
+      ret.p = pp.maximize(-ret.n) + ret.t * pt;
       return ret;
     default:
       int qi = main.index % 3;
       v::DVec<3> ql = q.maxEdge(ret.n, qi);
-      ret.p = p.getAlongSeg(ql, ql + q.s[qi] * qA[qi]);
+      std::cout << "edge.......???! "
+                << p.getAlongSeg(ql, ql + q.s[qi] * qA[qi]) << " " << pt
+                << std::endl;
+      ret.p = p.getAlongSeg(ql, ql + q.s[qi] * qA[qi]) + ret.t * pt;
       return ret;
     }
   }
@@ -269,13 +291,6 @@ struct CCDRotOBBIntersector {
     obb.z = ro.c;
   }
   static OBB poseToOBB(const Pose &pose, const v::DVec<3> &sl) {
-    struct Swap {
-      void operator()(double &a, double &b) const {
-        double tmp = a;
-        a = b;
-        b = tmp;
-      }
-    } swap;
     OBB ret;
     setOBBOrientation(pose, ret);
     ret.b = pose.p;
