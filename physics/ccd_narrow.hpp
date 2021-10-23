@@ -136,9 +136,15 @@ private:
   }
 
 public:
+#ifdef TEST_BUG_DEBUG
+  bool overlapKek = false;
+#endif
   // TODO: OPTIMIZE THE BELOW BY CHANGING BASES
   /// we suppose that p moves linearly by pt, and q by qt
   Contact getInt(const v::DVec<3> &pt, const v::DVec<3> &qt) {
+#ifdef TEST_BUG_DEBUG
+    overlapKek = false;
+#endif
     // std::cout << "ENTERING!!" << std::endl;
     v::DVec<3> pA[] = {p.x, p.y, p.z}; // p vert-face
     v::DVec<3> qA[] = {q.x, q.y, q.z}; // q vert-face
@@ -152,25 +158,42 @@ public:
     for (int i = 0; i < 3; i++) {
       v::DVec<2> a = p.extrema(pA[i]);
       v::DVec<2> b = q.extrema(pA[i]);
+#ifdef TEST_BUG_DEBUG
+      overlapKek = overlapKek || ((a[0] <= b[0] && a[1] >= b[1]) ||
+                                  (a[0] >= b[0] && a[1] <= b[1]));
+#endif
       double tmpRel = v::dot(pA[i], relVelo);
       v::DVec<3> mm = intervalInt(tmpRel, a[0] - b[1], a[1] - b[0]);
-      std::cout << "pA[" << i << "]: a,b,tmpRel,mm: " << a << b << tmpRel << " "
-                << mm << std::endl;
+      /*std::cout << "pA[" << i << "]: a,b,tmpRel,mm: " << a << b << tmpRel <<
+       " " << mm << std::endl;*/
+      bool ncond;
+      if (mm[0] > 0) {
+        ncond = tmpRel > 0;
+      } else {
+        ncond = a[1] - b[0] > b[1] - a[0];
+      }
+      v::DVec<3> normal = ncond ? pA[i] : v::DVec<3>(-pA[i]);
       // we don't use the index anyway in this case
-      if (updateAID({mm[0], mm[1], mm[2],
-                     tmpRel > 0 ? pA[i] : v::DVec<3>(-pA[i]), 0, 0},
-                    main)) {
+      if (updateAID({mm[0], mm[1], mm[2], normal, 0, 0}, main)) {
         break;
       }
       a = p.extrema(qA[i]);
       b = q.extrema(qA[i]);
+#ifdef TEST_BUG_DEBUG
+      overlapKek = overlapKek || ((a[0] <= b[0] && a[1] >= b[1]) ||
+                                  (a[0] >= b[0] && a[1] <= b[1]));
+#endif
       tmpRel = v::dot(qA[i], relVelo);
       mm = intervalInt(tmpRel, a[0] - b[1], a[1] - b[0]);
-      /*std::cout << "qA[" << i << "]: a,b,tmpRel,mm: " << a << b << tmpRel << "
-       * " << mm << std::endl;*/
-      if (updateAID({mm[0], mm[1], mm[2],
-                     tmpRel > 0 ? qA[i] : v::DVec<3>(-qA[i]), 1, 0},
-                    main)) {
+      /*std::cout << "qA[" << i << "]: a,b,tmpRel,mm: " << a << b << tmpRel <<
+       " " << mm << std::endl;*/
+      if (mm[0] > 0) {
+        ncond = tmpRel > 0;
+      } else {
+        ncond = a[1] - b[0] > b[1] - a[0];
+      }
+      normal = ncond ? qA[i] : v::DVec<3>(-qA[i]);
+      if (updateAID({mm[0], mm[1], mm[2], normal, 1, 0}, main)) {
         break;
       }
     }
@@ -183,13 +206,22 @@ public:
     for (int i = 0; i < 9; i++) {
       v::DVec<2> a = p.extrema(eA[i]);
       v::DVec<2> b = q.extrema(eA[i]);
+#ifdef TEST_BUG_DEBUG
+      overlapKek = overlapKek || ((a[0] <= b[0] && a[1] >= b[1]) ||
+                                  (a[0] >= b[0] && a[1] <= b[1]));
+#endif
       double tmpRel = v::dot(eA[i], relVelo);
       v::DVec<3> mm = intervalInt(tmpRel, a[0] - b[1], a[1] - b[0]);
       /*std::cout << "eA[" << i << "]: a,b,tmpRel,mm: " << a << b << tmpRel << "
        * " << mm << std::endl;*/
-      if (updateAID({mm[0], mm[1], mm[2],
-                     tmpRel > 0 ? eA[i] : v::DVec<3>(-eA[i]), 2, i},
-                    main)) {
+      bool ncond;
+      if (mm[0] > 0) {
+        ncond = tmpRel > 0;
+      } else {
+        ncond = a[1] - b[0] > b[1] - a[0];
+      }
+      v::DVec<3> normal = ncond ? eA[i] : v::DVec<3>(-eA[i]);
+      if (updateAID({mm[0], mm[1], mm[2], normal, 2, i}, main)) {
         break;
       }
     }
@@ -200,7 +232,7 @@ public:
       return ret;
     }
     ret.d = main.depth;
-    std::cout << "type: " << main.type << std::endl;
+    // std::cout << "type: " << main.type << std::endl;
 
     switch (main.type) {
     case 0:

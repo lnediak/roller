@@ -3,6 +3,7 @@
 #include <iostream>
 #include <random>
 
+#define TEST_BUG_DEBUG
 #include "ccd_narrow.hpp"
 
 using namespace roller;
@@ -33,7 +34,7 @@ bool stupidOBBInt(const OBB &a, const OBB &b) {
       for (int k = j + 1; k < 12; k++) {
         v::DVec<3> pp = planes[i].get(planes[j], planes[k]);
         if (a.isIn(pp) && b.isIn(pp)) {
-          std::cout << "stupid: " << pp << std::endl;
+          // std::cout << "stupid: " << pp << std::endl;
           return true;
         }
       }
@@ -128,7 +129,6 @@ int testRot() {
         if (res1 <= 1 && res2 >= 1 && !kekis) {
           continue;
         }
-        // tmp code:
         std::cout << op.b << op.s << op.x << op.y << op.z << op.a << op.c
                   << std::endl;
         std::cout << oq.b << oq.s << oq.x << oq.y << oq.z << oq.a << oq.c
@@ -138,7 +138,6 @@ int testRot() {
         std::cout << v::dot(oq.x, resc.p) << " " << v::dot(oq.y, resc.p) << " "
                   << v::dot(oq.z, resc.p) << std::endl;
         std::cout << resc.p << std::endl;
-        // end tmp code
 
         std::cerr << "FAIL!" << std::endl;
         std::cerr << "Iteration #" << spam << std::endl;
@@ -208,8 +207,8 @@ int testLinear() {
   std::uniform_real_distribution<> distro(-100, 100);
   std::uniform_real_distribution<> smol(-0.05, 0.05);
   std::uniform_real_distribution<> pdistro(0, 100);
-  for (int spam = 0; spam < 100000; spam++) {
-    if (spam % 1000 == 0) {
+  for (int spam = 0; spam < 1000; spam++) {
+    if (spam % 10 == 0) {
       std::cout << "Iteration #" << spam << std::endl;
     }
     Pose pp;
@@ -220,6 +219,10 @@ int testLinear() {
         {distro(mtrand), distro(mtrand), distro(mtrand), distro(mtrand)});
     OBB p = CCDRotOBBIntersector::poseToOBB(pp, {1, 1, 1});
     OBB q = CCDRotOBBIntersector::poseToOBB(qp, {1, 1, 1});
+    /*std::cout << v::dot(p.x, p.y) << " " << v::dot(p.x, p.z) << " "
+              << v::dot(p.y, p.z) << std::endl;
+    std::cout << v::dot(q.x, q.y) << " " << v::dot(q.x, q.z) << " "
+              << v::dot(q.y, q.z) << std::endl;*/
 
     CCDOBBIntersector inn(p, q);
     for (int spam2 = 0; spam2 < 100; spam2++) {
@@ -233,7 +236,7 @@ int testLinear() {
           qp, {pdistro(mtrand), pdistro(mtrand), pdistro(mtrand)});
       inn.setOBBs(p, q);
       Contact resc = inn.getInt(pv, qv);
-      std::cout << "resc.p: " << resc.p << std::endl;
+      // std::cout << "resc.p: " << resc.p << std::endl;
       double res1 = resc.t;
       if (res1 > 1) {
         res1 = 1.0001;
@@ -245,15 +248,15 @@ int testLinear() {
       apply(op, res1 * pv, zero, zero);
       OBB oq = q;
       apply(oq, res1 * qv, zero, zero);
-      op.a -= 1e-6;
-      op.c += 1e-6;
-      oq.a -= 1e-6;
-      oq.c += 1e-6;
+      op.a -= 2e-6;
+      op.c += 2e-6;
+      oq.a -= 2e-6;
+      oq.c += 2e-6;
       double df = res1 > res2 ? res1 - res2 : res2 - res1;
-      bool kekis = res1 <= 1 && (!op.isIn(resc.p) || !oq.isIn(resc.p));
-      if (df >= 0.01 || kekis) {
-
-        // tmp code:
+      bool kekis = (res1 != 0 || !inn.overlapKek) && res1 <= 1 &&
+                   (!op.isIn(resc.p) || !oq.isIn(resc.p));
+      if ((df >= 0.003 && res2 <= 1) || kekis) {
+        std::cout.precision(17);
         std::cout << op.b << op.s << op.x << op.y << op.z << op.a << op.c
                   << std::endl;
         std::cout << oq.b << oq.s << oq.x << oq.y << oq.z << oq.a << oq.c
@@ -263,7 +266,6 @@ int testLinear() {
         std::cout << v::dot(oq.x, resc.p) << " " << v::dot(oq.y, resc.p) << " "
                   << v::dot(oq.z, resc.p) << std::endl;
         std::cout << resc.p << " " << resc.d << " " << resc.n << std::endl;
-        // end tmp code
 
         std::cerr.precision(17);
         std::cerr << "FAIL!" << std::endl;

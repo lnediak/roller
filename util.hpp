@@ -128,6 +128,7 @@ double fastInvSqrt(double a) {
   long i = *(long *)&a;
   i = 0x5fe6ec85e7de30da - (i >> 1);
   double b = *(double *)&i;
+  // don't remove any of these. I need the precision for the quaternions
   b = b * (1.5 - a2 * b * b);
   b = b * (1.5 - a2 * b * b);
   b = b * (1.5 - a2 * b * b);
