@@ -67,18 +67,18 @@ struct CCDOBBIntersector {
     if (df1 <= 0 && df2 >= 0) {
       min = 0;
       depth = dmin(-df1, df2);
-      if (relVelo > 1e-8) {
+      if (relVelo > 1e-12) {
         max = df2 / relVelo;
-      } else if (relVelo < -1e-8) {
+      } else if (relVelo < -1e-12) {
         max = df1 / relVelo;
       } else {
-        max = 100; // I consider an error of ~1e-6 to be acceptable
+        max = 100; // I consider an error of ~1e-10 to be acceptable
       }
     } else {
-      if (df1 > 0 && relVelo > 1e-8) {
+      if (df1 > 0 && relVelo > 1e-12) {
         min = df1 / relVelo;
         max = df2 / relVelo;
-      } else if (df2 < 0 && relVelo < -1e-8) {
+      } else if (df2 < 0 && relVelo < -1e-12) {
         min = df2 / relVelo;
         max = df1 / relVelo;
       } else {
@@ -97,10 +97,10 @@ private:
     int type, index;
   };
   static bool updateAID(const AxisIDetail &tmp, AxisIDetail &main) {
-    std::cout << "tmp.tmin,tmp.tmax,tmp.depth,tmp.n: " << tmp.tmin << " "
+    /*std::cout << "tmp.tmin,tmp.tmax,tmp.depth,tmp.n: " << tmp.tmin << " "
               << tmp.tmax << " " << tmp.depth << " " << tmp.n << std::endl;
     std::cout << "main.tmin,main.tmax,main.depth,main.n: " << main.tmin << " "
-              << main.tmax << " " << main.depth << " " << main.n << std::endl;
+              << main.tmax << " " << main.depth << " " << main.n << std::endl;*/
     if (tmp.tmin > tmp.tmax) {
       main = tmp;
       return true;
@@ -120,9 +120,11 @@ private:
         }
       }
     } else if (main.tmin == tmp.tmin) {
-      if (main.tmax > tmp.tmax) {
+      double tmax = main.tmax > tmp.tmax ? tmp.tmax : main.tmax;
+      if (main.depth > tmp.depth) {
         main = tmp;
       }
+      main.tmax = tmax;
     } else if (main.tmax > tmp.tmax) {
       main.tmax = tmp.tmax;
       if (main.tmin > main.tmax) {
@@ -137,7 +139,7 @@ public:
   // TODO: OPTIMIZE THE BELOW BY CHANGING BASES
   /// we suppose that p moves linearly by pt, and q by qt
   Contact getInt(const v::DVec<3> &pt, const v::DVec<3> &qt) {
-    std::cout << "ENTERING!!" << std::endl;
+    // std::cout << "ENTERING!!" << std::endl;
     v::DVec<3> pA[] = {p.x, p.y, p.z}; // p vert-face
     v::DVec<3> qA[] = {q.x, q.y, q.z}; // q vert-face
     v::DVec<3> eA[] = {ee(p.x, q.x), ee(p.x, q.y), ee(p.x, q.z),
@@ -152,8 +154,8 @@ public:
       v::DVec<2> b = q.extrema(pA[i]);
       double tmpRel = v::dot(pA[i], relVelo);
       v::DVec<3> mm = intervalInt(tmpRel, a[0] - b[1], a[1] - b[0]);
-      std::cout << "a,b,tmpRel,mm: " << a << b << tmpRel << " " << mm
-                << std::endl;
+      std::cout << "pA[" << i << "]: a,b,tmpRel,mm: " << a << b << tmpRel << " "
+                << mm << std::endl;
       // we don't use the index anyway in this case
       if (updateAID({mm[0], mm[1], mm[2],
                      tmpRel > 0 ? pA[i] : v::DVec<3>(-pA[i]), 0, 0},
@@ -164,6 +166,8 @@ public:
       b = q.extrema(qA[i]);
       tmpRel = v::dot(qA[i], relVelo);
       mm = intervalInt(tmpRel, a[0] - b[1], a[1] - b[0]);
+      /*std::cout << "qA[" << i << "]: a,b,tmpRel,mm: " << a << b << tmpRel << "
+       * " << mm << std::endl;*/
       if (updateAID({mm[0], mm[1], mm[2],
                      tmpRel > 0 ? qA[i] : v::DVec<3>(-qA[i]), 1, 0},
                     main)) {
@@ -173,7 +177,7 @@ public:
     if (main.tmin > main.tmax) {
       ret.t = main.tmin;
       ret.n = main.n;
-      std::cout << "kek1: " << ret.t << std::endl;
+      // std::cout << "kek1: " << ret.t << std::endl;
       return ret;
     }
     for (int i = 0; i < 9; i++) {
@@ -181,6 +185,8 @@ public:
       v::DVec<2> b = q.extrema(eA[i]);
       double tmpRel = v::dot(eA[i], relVelo);
       v::DVec<3> mm = intervalInt(tmpRel, a[0] - b[1], a[1] - b[0]);
+      /*std::cout << "eA[" << i << "]: a,b,tmpRel,mm: " << a << b << tmpRel << "
+       * " << mm << std::endl;*/
       if (updateAID({mm[0], mm[1], mm[2],
                      tmpRel > 0 ? eA[i] : v::DVec<3>(-eA[i]), 2, i},
                     main)) {
@@ -190,32 +196,28 @@ public:
     ret.t = main.tmin;
     ret.n = main.n;
     if (main.tmin > main.tmax) {
-      std::cout << "kek2: " << ret.t << std::endl;
+      // std::cout << "kek2: " << ret.t << std::endl;
       return ret;
     }
     ret.d = main.depth;
+    std::cout << "type: " << main.type << std::endl;
 
-    OBB pp = p;
-    pp.b += ret.t * pt;
-    OBB qq = q;
-    qq.b += ret.t * qt;
     switch (main.type) {
     case 0:
-      std::cout << "HERE WE GO! " << qq.maximize(ret.n) << " " << qt
-                << std::endl;
-      ret.p = qq.maximize(ret.n) + ret.t * qt;
+      // std::cout << "HERE GO! " << q.maximize(ret.n) << " " << qt <<
+      // std::endl;
+      ret.p = q.maximize(ret.n) + ret.t * qt;
       return ret;
     case 1:
-      std::cout << "maybe???! " << pp.maximize(-ret.n) << " " << pt
-                << std::endl;
-      ret.p = pp.maximize(-ret.n) + ret.t * pt;
+      // std::cout << "maybe???! " << p.maximize(-ret.n) << " " << pt <<
+      // std::endl;
+      ret.p = p.maximize(-ret.n) + ret.t * pt;
       return ret;
     default:
       int qi = main.index % 3;
-      v::DVec<3> ql = q.maxEdge(ret.n, qi);
-      std::cout << "edge.......???! "
-                << p.getAlongSeg(ql, ql + q.s[qi] * qA[qi]) << " " << pt
-                << std::endl;
+      v::DVec<3> ql = q.maxEdge(ret.n, qi) + ret.t * (qt - pt);
+      /*std::cout << "edge.......???! " << p.getAlongSeg(ql, ql + q.s[qi] *
+       * qA[qi]) << " " << pt << std::endl;*/
       ret.p = p.getAlongSeg(ql, ql + q.s[qi] * qA[qi]) + ret.t * pt;
       return ret;
     }

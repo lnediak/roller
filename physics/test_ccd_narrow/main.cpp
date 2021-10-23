@@ -21,19 +21,19 @@ bool stupidOBBInt(const OBB &a, const OBB &b) {
       return DMat3x3{v, a.v, b.v}.solve({p, a.p, b.p});
     }
   };
-  Plane planes[] = {{a.x, a.a[0]}, {a.x, a.c[0]}, {a.y, a.a[1]}, {a.y, a.c[1]},
-                    {a.z, a.a[2]}, {a.z, a.a[2]}, {b.x, b.a[0]}, {b.x, b.c[0]},
-                    {b.y, b.a[1]}, {b.y, b.c[1]}, {b.z, b.a[2]}, {b.z, b.a[2]}};
-  OBB fa = a, fb = b;
-  fa.a -= 1e-15;
-  fa.c += 1e-15;
-  fb.a -= 1e-15;
-  fb.c += 1e-15;
+  v::DVec<3> aa = a.a + 1e-8;
+  v::DVec<3> ac = a.c - 1e-8;
+  v::DVec<3> ba = b.a + 1e-8;
+  v::DVec<3> bc = b.c - 1e-8;
+  Plane planes[] = {{a.x, aa[0]}, {a.x, ac[0]}, {a.y, aa[1]}, {a.y, ac[1]},
+                    {a.z, aa[2]}, {a.z, ac[2]}, {b.x, ba[0]}, {b.x, bc[0]},
+                    {b.y, ba[1]}, {b.y, bc[1]}, {b.z, ba[2]}, {b.z, bc[2]}};
   for (int i = 0; i < 10; i++) {
     for (int j = i + 1; j < 11; j++) {
       for (int k = j + 1; k < 12; k++) {
         v::DVec<3> pp = planes[i].get(planes[j], planes[k]);
-        if (fa.isIn(pp) && fb.isIn(pp)) {
+        if (a.isIn(pp) && b.isIn(pp)) {
+          std::cout << "stupid: " << pp << std::endl;
           return true;
         }
       }
@@ -63,7 +63,7 @@ void apply(OBB &p, v::DVec<3> trans, v::DVec<3> omega, v::DVec<3> c) {
 
 double getTime(const OBB &p, v::DVec<3> pv, v::DVec<3> omega1, v::DVec<3> pc,
                const OBB &q, v::DVec<3> qv, v::DVec<3> omega2, v::DVec<3> qc) {
-  for (double t = 0; t < 1; t += 1e-4) {
+  for (double t = 0; t < 1; t += 1e-3) {
     OBB pp = p;
     apply(pp, t * pv, t * omega1, pc);
     OBB qq = q;
@@ -113,14 +113,22 @@ int testRot() {
         res1 = 1.0001;
       }
       double res2 = getTime(p, pv, omega1, pc, q, qv, omega2, qc);
-      double df = res1 > res2 ? res1 - res2 : res2 - res1;
-      if (df >= 0.05) {
 
+      OBB op = p;
+      apply(op, res1 * pv, res1 * omega1, pc);
+      OBB oq = q;
+      apply(oq, res1 * qv, res1 * omega2, qc);
+      op.a -= 1e-6;
+      op.c += 1e-6;
+      oq.a -= 1e-6;
+      oq.c += 1e-6;
+      double df = res1 > res2 ? res1 - res2 : res2 - res1;
+      bool kekis = res1 <= 1 && (!op.isIn(resc.p) || !oq.isIn(resc.p));
+      if (df >= 0.01 || kekis) {
+        if (res1 <= 1 && res2 >= 1 && !kekis) {
+          continue;
+        }
         // tmp code:
-        OBB op = p;
-        apply(op, res1 * pv, res1 * omega1, pc);
-        OBB oq = q;
-        apply(oq, res1 * qv, res1 * omega2, qc);
         std::cout << op.b << op.s << op.x << op.y << op.z << op.a << op.c
                   << std::endl;
         std::cout << oq.b << oq.s << oq.x << oq.y << oq.z << oq.a << oq.c
@@ -130,6 +138,7 @@ int testRot() {
         std::cout << v::dot(oq.x, resc.p) << " " << v::dot(oq.y, resc.p) << " "
                   << v::dot(oq.z, resc.p) << std::endl;
         std::cout << resc.p << std::endl;
+        // end tmp code
 
         std::cerr << "FAIL!" << std::endl;
         std::cerr << "Iteration #" << spam << std::endl;
@@ -224,20 +233,27 @@ int testLinear() {
           qp, {pdistro(mtrand), pdistro(mtrand), pdistro(mtrand)});
       inn.setOBBs(p, q);
       Contact resc = inn.getInt(pv, qv);
+      std::cout << "resc.p: " << resc.p << std::endl;
       double res1 = resc.t;
       if (res1 > 1) {
         res1 = 1.0001;
       }
       v::DVec<3> zero{0, 0, 0};
       double res2 = getTime(p, pv, zero, zero, q, qv, zero, zero);
+
+      OBB op = p;
+      apply(op, res1 * pv, zero, zero);
+      OBB oq = q;
+      apply(oq, res1 * qv, zero, zero);
+      op.a -= 1e-6;
+      op.c += 1e-6;
+      oq.a -= 1e-6;
+      oq.c += 1e-6;
       double df = res1 > res2 ? res1 - res2 : res2 - res1;
-      if (df >= 0.05) {
+      bool kekis = res1 <= 1 && (!op.isIn(resc.p) || !oq.isIn(resc.p));
+      if (df >= 0.01 || kekis) {
 
         // tmp code:
-        OBB op = p;
-        apply(op, res1 * pv, zero, zero);
-        OBB oq = q;
-        apply(oq, res1 * qv, zero, zero);
         std::cout << op.b << op.s << op.x << op.y << op.z << op.a << op.c
                   << std::endl;
         std::cout << oq.b << oq.s << oq.x << oq.y << oq.z << oq.a << oq.c
@@ -249,6 +265,7 @@ int testLinear() {
         std::cout << resc.p << " " << resc.d << " " << resc.n << std::endl;
         // end tmp code
 
+        std::cerr.precision(17);
         std::cerr << "FAIL!" << std::endl;
         std::cerr << "Iteration #" << spam << std::endl;
         std::cerr << "Sub-Iteration #" << spam2 << std::endl;

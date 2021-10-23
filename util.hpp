@@ -130,6 +130,7 @@ double fastInvSqrt(double a) {
   double b = *(double *)&i;
   b = b * (1.5 - a2 * b * b);
   b = b * (1.5 - a2 * b * b);
+  b = b * (1.5 - a2 * b * b);
   return b;
 }
 
