@@ -341,7 +341,7 @@ struct CCDRotOBBIntersector {
     } else {
       sd.pp.q = normalizeQuaternion(quaternionMult(sd.w1, sd.pp.q));
       states[sd.ind].u1 = sd.pp.q;
-      sd.qq.q = normalizeQuaternion(quaternionMult(sd.w1, sd.qq.q));
+      sd.qq.q = normalizeQuaternion(quaternionMult(sd.w2, sd.qq.q));
       states[sd.ind].u2 = sd.qq.q;
       setOBBOrientation(sd.pp, sd.po);
       states[sd.ind].px = sd.po.x;
@@ -418,13 +418,14 @@ struct CCDRotOBBIntersector {
                 << subdivl.po.z << std::endl;
       std::cout << subdivl.qo.b << subdivl.qo.s << subdivl.qo.x << subdivl.qo.y
                 << subdivl.qo.z << std::endl;
-      /*std::cout << "adjusted?" << std::endl;
+      std::cout << "adjusted?" << std::endl;
       OBB utterspam1 = subdivl.po;
       OBB utterspam2 = subdivl.qo;
       utterspam1.b += (((double)subdivl.ind) / MAX_SUBDIVISION) * pv;
       utterspam2.b += (((double)subdivl.ind) / MAX_SUBDIVISION) * qv;
       utterspam1.properify();
       utterspam2.properify();
+      /*
       std::cout << utterspam1.b << utterspam1.s << utterspam1.x << utterspam1.y
                 << utterspam1.z << utterspam1.a << utterspam1.c << std::endl;
       std::cout << utterspam2.b << utterspam2.s << utterspam2.x << utterspam2.y
@@ -432,6 +433,7 @@ struct CCDRotOBBIntersector {
 
       OBB obb1 = subdivm.po.wrapOBB(subdiv.po);
       OBB obb2 = subdivm.qo.wrapOBB(subdiv.qo);
+      // XXX: CHECK TO SEE IF THIS IS REALLY NECESSARY
       OBB obb3 = subdivm.po.wrapOBB(subdivl.po);
       OBB obb4 = subdivm.qo.wrapOBB(subdivl.qo);
       v::DVec<3> pdisp = obb3.center() - obb1.center();
@@ -442,105 +444,6 @@ struct CCDRotOBBIntersector {
       obb4.b -= qdisp;
       obb4.properify();
       obb2.fattenOBB(obb4);
-
-      // HORRIBLE DEBUG HERE!!!!!!!!!
-      /*
-      double step = 1 / 50.;
-      double mval = 0;
-      for (double vv1 = 0; vv1 < 1; vv1 += step) {
-        for (double vv2 = 0; vv2 < 1; vv2 += step) {
-          for (int type1 = 0; type1 < 6; type1++) {
-            double mmval = 10000000;
-            for (double vv4 = 0; vv4 < 1; vv4 += step) {
-              for (double vv5 = 0; vv5 < 1; vv5 += step) {
-                for (int type2 = 0; type2 < 6; type2++) {
-                  double v1, v2, v3, v4, v5, v6;
-                  switch (type1) {
-                  case 0:
-                    v1 = vv1;
-                    v2 = vv2;
-                    v3 = 0;
-                    break;
-                  case 1:
-                    v1 = vv1;
-                    v2 = vv2;
-                    v3 = 1;
-                    break;
-                  case 2:
-                    v1 = vv1;
-                    v2 = 0;
-                    v3 = vv2;
-                    break;
-                  case 3:
-                    v1 = vv1;
-                    v2 = 1;
-                    v3 = vv2;
-                    break;
-                  case 4:
-                    v1 = 0;
-                    v2 = vv1;
-                    v3 = vv2;
-                    break;
-                  default:
-                    v1 = 1;
-                    v2 = vv1;
-                    v3 = vv2;
-                  }
-                  switch (type2) {
-                  case 0:
-                    v4 = vv4;
-                    v5 = vv5;
-                    v6 = 0;
-                    break;
-                  case 1:
-                    v4 = vv4;
-                    v5 = vv5;
-                    v6 = 1;
-                    break;
-                  case 2:
-                    v4 = vv4;
-                    v5 = 0;
-                    v6 = vv5;
-                    break;
-                  case 3:
-                    v4 = vv4;
-                    v5 = 1;
-                    v6 = vv5;
-                    break;
-                  case 4:
-                    v4 = 0;
-                    v5 = vv4;
-                    v6 = vv5;
-                    break;
-                  default:
-                    v4 = 1;
-                    v5 = vv4;
-                    v6 = vv5;
-                  }
-                  v::DVec<3> pnt1 = obb1.b + v1 * obb1.s[0] * obb1.x +
-                                    v2 * obb1.s[1] * obb1.y +
-                                    v3 * obb1.s[2] * obb1.z;
-                  v::DVec<3> pnt2 = subdiv.po.b +
-                                    v4 * subdiv.po.s[0] * subdiv.po.x +
-                                    v5 * subdiv.po.s[1] * subdiv.po.y +
-                                    v6 * subdiv.po.s[2] * subdiv.po.z;
-                  double nval = v::norm2(pnt2 - pnt1);
-                  if (nval < mmval) {
-                    mmval = nval;
-                  }
-                }
-              }
-            }
-            if (mmval > mval) {
-              mval = mmval;
-            }
-          }
-        }
-      }
-      std::cout << "HARD WORK HERE!!!!!!!!!" << std::sqrt(mval) << std::endl;
-      */
-      // END HORRIBLE DEBUG HERE!!!!!!!!!!!!!
-      std::cout << "difference? " << obb1.s - subdivm.po.s << std::endl;
 
       double timedivf = 1 << subdiv.lvl;
       v::DVec<3> pvelo = pv / timedivf + pdisp;
@@ -564,6 +467,8 @@ struct CCDRotOBBIntersector {
       // DEBUG HERE
       obb1.properify();
       obb2.properify();
+      std::cout << "another difference? " << obb1.b + pvelo - utterspam1.b
+                << std::endl;
       std::cout << "pvelo,qvelo: " << pvelo << " " << qvelo << std::endl;
       std::cout << "subdivm.w1[0],subdivm.w2[0]: " << subdivm.w1[0] << " "
                 << subdivm.w2[0] << std::endl;
@@ -589,6 +494,23 @@ struct CCDRotOBBIntersector {
           overlapKek = inn.overlapKek;
 #endif
           contact.t /= timedivf;
+
+          std::cout << "found? " << std::endl;
+          obb1.b += contact.t * pvelo;
+          obb1.properify();
+          obb2.b += contact.t * qvelo;
+          obb2.properify();
+          std::cout << obb1.b << obb1.s << obb1.x << obb1.y << obb1.z << obb1.a
+                    << obb1.c << std::endl;
+          std::cout << obb2.b << obb2.s << obb2.x << obb2.y << obb2.z << obb2.a
+                    << obb2.c << std::endl;
+          std::cout << v::dot(contact.p, obb1.x) << " "
+                    << v::dot(contact.p, obb1.y) << " "
+                    << v::dot(contact.p, obb1.z) << std::endl;
+          std::cout << v::dot(contact.p, obb2.x) << " "
+                    << v::dot(contact.p, obb2.y) << " "
+                    << v::dot(contact.p, obb2.z) << std::endl;
+
           contact.t += indf;
           std::cout << "found! " << contact.t << " " << subdiv.ind << " "
                     << subdiv.lvl << std::endl;
@@ -597,16 +519,12 @@ struct CCDRotOBBIntersector {
         subdivm.lvl = ++subdiv.lvl;
         subdivm.w1 = subdiv.w1 = smolRot1[subdiv.lvl];
         subdivm.w2 = subdiv.w2 = smolRot2[subdiv.lvl];
-        std::cout << "pushing: " << subdivm.ind << " " << subdivm.lvl
-                  << std::endl;
         stack.push_back(subdivm);
-        std::cout << "pushing: " << subdiv.ind << " " << subdiv.lvl
-                  << std::endl;
         stack.push_back(subdiv);
       }
       std::cout << std::endl;
     } while (stack.size());
-    std::cout << "no collision" << std::endl;
+    std::cout << "no collision" << std::endl << std::endl;
     Contact ret;
     // no collision
     ret.t = 2;
