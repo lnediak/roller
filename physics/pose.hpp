@@ -36,11 +36,11 @@ v::DVec<4> getRotQuaternion(const v::DVec<3> &w) {
     return {1, 0, 0, 0};
   }
   // XXX: FIND WHAT THIS NUMBER SHOULD ACTUALLY BE
-  if (wnorm2 < 0.05) {
+  if (wnorm2 < 1e-6) {
     // first-order Taylor approximation
-    return {1, w[0], w[1], w[2]};
+    return normalizeQuaternion(v::DVec<4>{1, w[0], w[1], w[2]});
   }
-  // XXX: USE FAST ALGORITHMS FOR THESE SQRT AND SINC
+  // XXX: USE FAST ALGORITHMS FOR THESE SQRT AND TAN
   double wnorm = std::sqrt(wnorm2);
   v::DVec<3> ww = (std::sin(wnorm) / wnorm) * w;
   return {std::cos(wnorm), ww[0], ww[1], ww[2]};

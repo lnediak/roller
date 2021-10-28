@@ -70,7 +70,7 @@ double getTime(const OBB &p, v::DVec<3> pv, v::DVec<3> omega1, v::DVec<3> pc,
 int testRot() {
   std::mt19937 mtrand(1);
   std::uniform_real_distribution<> distro(-10, 10);
-  std::uniform_real_distribution<> smol(-0.3, 0.3);
+  std::uniform_real_distribution<> smol(-0.1, 0.1);
   std::uniform_real_distribution<> pdistro(0, 10);
   for (int spam = 0; spam < 100000; spam++) {
     if (spam % 1000 == 0) {
@@ -106,14 +106,26 @@ int testRot() {
       }
       double res2 = getTime(p, pv, omega1, pc, q, qv, omega2, qc);
 
+      /*
+      OBB spamp = p;
+      apply(spamp, pv, omega1, pc);
+      OBB spamq = q;
+      apply(spamq, qv, omega2, qc);
+      std::cout << std::endl << "spamp, spamq:" << std::endl;
+      std::cout << spamp.b << spamp.s << spamp.x << spamp.y << spamp.z
+                << spamp.a << spamp.c << std::endl;
+      std::cout << spamq.b << spamq.s << spamq.x << spamq.y << spamq.z
+                << spamq.a << spamq.c << std::endl;
+                */
+
       OBB op = p;
       apply(op, res1 * pv, res1 * omega1, pc);
       OBB oq = q;
       apply(oq, res1 * qv, res1 * omega2, qc);
-      op.a -= 0.05;
-      op.c += 0.05;
-      oq.a -= 0.05;
-      oq.c += 0.05;
+      op.a -= 0.02;
+      op.c += 0.02;
+      oq.a -= 0.02;
+      oq.c += 0.02;
       double df = res1 > res2 ? res1 - res2 : res2 - res1;
       bool kekis = (res1 != 0 || !inn.overlapKek) && res1 <= 1 &&
                    (!op.isIn(resc.p) || !oq.isIn(resc.p));
