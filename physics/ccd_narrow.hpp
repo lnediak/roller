@@ -72,7 +72,7 @@ struct CCDOBBIntersector {
       } else if (relVelo < -1e-12) {
         max = df1 / relVelo;
       } else {
-        max = 100; // I consider an error of ~1e-10 to be acceptable
+        max = 100;
       }
     } else {
       if (df1 > 0 && relVelo > 1e-12) {
@@ -97,10 +97,6 @@ private:
     int type, index;
   };
   static bool updateAID(const AxisIDetail &tmp, AxisIDetail &main) {
-    /*std::cout << "tmp.tmin,tmp.tmax,tmp.depth,tmp.n: " << tmp.tmin << " "
-              << tmp.tmax << " " << tmp.depth << " " << tmp.n << std::endl;
-    std::cout << "main.tmin,main.tmax,main.depth,main.n: " << main.tmin << " "
-              << main.tmax << " " << main.depth << " " << main.n << std::endl;*/
     if (tmp.tmin > tmp.tmax) {
       main = tmp;
       return true;
@@ -164,8 +160,6 @@ public:
 #endif
       double tmpRel = v::dot(pA[i], relVelo);
       v::DVec<3> mm = intervalInt(tmpRel, a[0] - b[1], a[1] - b[0]);
-      /*std::cout << "pA[" << i << "]: a,b,tmpRel,mm: " << a << b << tmpRel <<
-       " " << mm << std::endl;*/
       bool ncond;
       if (mm[0] > 0) {
         ncond = tmpRel > 0;
@@ -185,8 +179,6 @@ public:
 #endif
       tmpRel = v::dot(qA[i], relVelo);
       mm = intervalInt(tmpRel, a[0] - b[1], a[1] - b[0]);
-      /*std::cout << "qA[" << i << "]: a,b,tmpRel,mm: " << a << b << tmpRel <<
-       " " << mm << std::endl;*/
       if (mm[0] > 0) {
         ncond = tmpRel > 0;
       } else {
@@ -200,7 +192,6 @@ public:
     if (main.tmin > main.tmax) {
       ret.t = main.tmin;
       ret.n = main.n;
-      // std::cout << "kek1: " << ret.t << std::endl;
       return ret;
     }
     for (int i = 0; i < 9; i++) {
@@ -212,8 +203,6 @@ public:
 #endif
       double tmpRel = v::dot(eA[i], relVelo);
       v::DVec<3> mm = intervalInt(tmpRel, a[0] - b[1], a[1] - b[0]);
-      /*std::cout << "eA[" << i << "]: a,b,tmpRel,mm: " << a << b << tmpRel << "
-       * " << mm << std::endl;*/
       bool ncond;
       if (mm[0] > 0) {
         ncond = tmpRel > 0;
@@ -228,28 +217,20 @@ public:
     ret.t = main.tmin;
     ret.n = main.n;
     if (main.tmin > main.tmax) {
-      // std::cout << "kek2: " << ret.t << std::endl;
       return ret;
     }
     ret.d = main.depth;
-    // std::cout << "type: " << main.type << std::endl;
 
     switch (main.type) {
     case 0:
-      // std::cout << "HERE GO! " << q.maximize(ret.n) << " " << qt <<
-      // std::endl;
       ret.p = q.maximize(ret.n) + ret.t * qt;
       return ret;
     case 1:
-      // std::cout << "maybe???! " << p.maximize(-ret.n) << " " << pt <<
-      // std::endl;
       ret.p = p.maximize(-ret.n) + ret.t * pt;
       return ret;
     default:
       int qi = main.index % 3;
       v::DVec<3> ql = q.maxEdge(ret.n, qi) + ret.t * (qt - pt);
-      /*std::cout << "edge.......???! " << p.getAlongSeg(ql, ql + q.s[qi] *
-       * qA[qi]) << " " << pt << std::endl;*/
       ret.p = p.getAlongSeg(ql, ql + q.s[qi] * qA[qi]) + ret.t * pt;
       return ret;
     }
@@ -345,41 +326,45 @@ struct CCDRotOBBIntersector {
     sd.qq.p = applyQuaternion(sd.qq.p, sd.w2);
     sd.po.b = sd.pp.p + pc;
     sd.qo.b = sd.qq.p + qc;
-    std::size_t sii = sd.ind + (MAX_SUBDIVISION >> (sd.lvl + 1));
-    sd.ind = sii;
-    if (states[sii].isInit) {
-      sd.pp.q = states[sii].u1;
-      sd.qq.q = states[sii].u2;
-      sd.po.x = states[sii].px;
-      sd.po.y = states[sii].py;
-      sd.po.z = states[sii].pz;
-      sd.qo.x = states[sii].qx;
-      sd.qo.y = states[sii].qy;
-      sd.qo.z = states[sii].qz;
-      if (updateLocals) {
-        locals[sii].setOBBs(sd.po, sd.qo);
-      }
+    std::size_t lvll = MAX_SUBDIVISION >> (sd.lvl + 1);
+    sd.ind += lvll;
+    std::cout << "modSubdiv: " << lvll << " " << sd.ind << std::endl;
+    if (states[sd.ind].isInit) {
+      sd.pp.q = states[sd.ind].u1;
+      sd.qq.q = states[sd.ind].u2;
+      sd.po.x = states[sd.ind].px;
+      sd.po.y = states[sd.ind].py;
+      sd.po.z = states[sd.ind].pz;
+      sd.qo.x = states[sd.ind].qx;
+      sd.qo.y = states[sd.ind].qy;
+      sd.qo.z = states[sd.ind].qz;
     } else {
       sd.pp.q = normalizeQuaternion(quaternionMult(sd.w1, sd.pp.q));
-      states[sii].u1 = sd.pp.q;
+      states[sd.ind].u1 = sd.pp.q;
       sd.qq.q = normalizeQuaternion(quaternionMult(sd.w1, sd.qq.q));
-      states[sii].u2 = sd.qq.q;
+      states[sd.ind].u2 = sd.qq.q;
       setOBBOrientation(sd.pp, sd.po);
-      states[sii].px = sd.po.x;
-      states[sii].py = sd.po.y;
-      states[sii].pz = sd.po.z;
+      states[sd.ind].px = sd.po.x;
+      states[sd.ind].py = sd.po.y;
+      states[sd.ind].pz = sd.po.z;
       setOBBOrientation(sd.qq, sd.qo);
-      states[sii].qx = sd.qo.x;
-      states[sii].qy = sd.qo.y;
-      states[sii].qz = sd.qo.z;
+      states[sd.ind].qx = sd.qo.x;
+      states[sd.ind].qy = sd.qo.y;
+      states[sd.ind].qz = sd.qo.z;
       if (updateLocals) {
-        locals[sii].~CCDOBBIntersector();
-        new (&locals[sii]) CCDOBBIntersector(sd.po, sd.qo);
+        std::cout << "modSubdiv, initializing local " << sd.ind << std::endl;
+        locals[sd.ind].~CCDOBBIntersector();
+        new (&locals[sd.ind]) CCDOBBIntersector(sd.po, sd.qo);
       }
     }
   }
+#ifdef TEST_BUG_DEBUG
+  bool overlapKek = false;
+#endif
   /// pv and qv are velocities
   Contact getInt(v::DVec<3> pv, v::DVec<3> qv) {
+    std::cout << "getInt entry here-----------" << std::endl;
+
     std::vector<Subdiv> stack;
     v::DVec<4> tmpw1 = smolRot1[0];
     v::DVec<4> tmpw2 = smolRot2[0];
@@ -392,6 +377,11 @@ struct CCDRotOBBIntersector {
     tmpqo.z = states[0].qz;
     tmppo = OBB(p.p, ps, states[0].px, states[0].py, states[0].pz);
     tmpqo = OBB(q.p, qs, states[0].qx, states[0].qy, states[0].qz);
+
+    std::cout << "tmppo: " << tmppo.b << tmppo.s << tmppo.x << tmppo.y
+              << tmppo.z << std::endl;
+    std::cout << "tmpqo: " << tmpqo.b << tmpqo.s << tmpqo.x << tmpqo.y
+              << tmpqo.z << std::endl;
 
     Pose tmpp = p;
     tmpp.p -= pc;
@@ -408,6 +398,25 @@ struct CCDRotOBBIntersector {
       Subdiv subdivl = subdivm;
       modSubdiv<false>(subdivl);
       CCDOBBIntersector &inn = locals[subdivm.ind];
+      std::cout << "do-while." << std::endl;
+
+      /*std::cout << subdiv.ind << " " << subdiv.lvl << std::endl;
+      std::cout << subdiv.w1 << " " << subdiv.w2 << std::endl;
+      std::cout << subdiv.pp.p << subdiv.pp.q << subdiv.qq.p << subdiv.qq.q
+                << std::endl;
+      std::cout << subdiv.po.b << subdiv.po.s << subdiv.po.x << subdiv.po.y
+                << subdiv.po.z << std::endl;
+      std::cout << subdiv.qo.b << subdiv.qo.s << subdiv.qo.x << subdiv.qo.y
+                << subdiv.qo.z << std::endl;
+      std::cout << "subdivl: " << std::endl;
+      std::cout << subdivl.ind << " " << subdivl.lvl << std::endl;
+      std::cout << subdivl.w1 << " " << subdivl.w2 << std::endl;
+      std::cout << subdivl.pp.p << subdivl.pp.q << subdivl.qq.p << subdivl.qq.q
+                << std::endl;
+      std::cout << subdivl.po.b << subdivl.po.s << subdivl.po.x << subdivl.po.y
+                << subdivl.po.z << std::endl;
+      std::cout << subdivl.qo.b << subdivl.qo.s << subdivl.qo.x << subdivl.qo.y
+                << subdivl.qo.z << std::endl;*/
 
       OBB obb1 = subdivm.po.wrapOBB(subdiv.po);
       OBB obb2 = subdivm.qo.wrapOBB(subdiv.qo);
@@ -415,37 +424,59 @@ struct CCDRotOBBIntersector {
       OBB obb4 = subdivm.qo.wrapOBB(subdivl.qo);
       v::DVec<3> pdisp = obb3.center() - obb1.center();
       obb3.b -= pdisp;
+      obb3.properify();
       obb1.fattenOBB(obb3);
       v::DVec<3> qdisp = obb4.center() - obb2.center();
       obb4.b -= qdisp;
+      obb4.properify();
       obb2.fattenOBB(obb4);
 
-      v::DVec<3> pvelo = pv + pdisp;
-      v::DVec<3> qvelo = qv + qdisp;
+      int timedivf = 1 << subdiv.lvl;
+      v::DVec<3> pvelo = pv / timedivf + pdisp;
+      v::DVec<3> qvelo = qv / timedivf + qdisp;
 
-      double err2 = subdivm.w1[0] * subdivm.w1[0];
-      double err2p = err2 * radiusp;
-      double err2q = err2 * radiusq;
-      // remember that theta^2/2>=1-cos(theta)
-      double errp = err2p / 2;
-      double errq = err2q / 2;
-      obb1.b -= errp;
-      obb1.s += err2p;
-      obb2.b -= errq;
-      obb2.s += err2q;
+      double errp = (1 - subdivm.w1[0]) * radiusp;
+      double errq = (1 - subdivm.w2[0]) * radiusq;
+      obb1.inflate(errp);
+      obb2.inflate(errq);
 
+      double indf = subdiv.ind;
+      indf /= MAX_SUBDIVISION;
+      obb1.b += pv * indf;
+      obb2.b += qv * indf;
+
+      std::cout << pvelo << " " << qvelo << std::endl;
+      std::cout << obb1.b << obb1.s << obb1.x << obb1.y << obb1.z << std::endl;
+      std::cout << obb2.b << obb2.s << obb2.x << obb2.y << obb2.z << std::endl;
+
+      inn.setOBBs(obb1, obb2);
       Contact contact = inn.getInt(pvelo, qvelo);
       if (contact.t <= 1) {
+        errp *= 3;
+        errq *= 3;
         if ((errp < tol && errq < tol) || (subdivm.lvl + 1 >= MAX_LEVELS)) {
+#ifdef TEST_BUG_DEBUG
+          overlapKek = inn.overlapKek;
+#endif
+          contact.t /= timedivf;
+          contact.t += indf;
+          std::cout << "found! " << contact.t << " " << subdiv.ind << " "
+                    << subdiv.lvl << std::endl;
           return contact;
         }
         subdivm.lvl = ++subdiv.lvl;
         subdivm.w1 = subdiv.w1 = smolRot1[subdiv.lvl];
         subdivm.w2 = subdiv.w2 = smolRot2[subdiv.lvl];
+        std::cout << "pushing: " << subdivm.ind << " " << subdivm.lvl
+                  << std::endl;
         stack.push_back(subdivm);
+        std::cout << "pushing: " << subdiv.ind << " " << subdiv.lvl
+                  << std::endl;
         stack.push_back(subdiv);
       }
+      std::cout << std::endl;
     } while (stack.size());
+    std::cout << "no collision" << std::endl;
     Contact ret;
     // no collision
     ret.t = 2;

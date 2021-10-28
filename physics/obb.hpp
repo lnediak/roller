@@ -118,6 +118,12 @@ struct OBB {
     s = c - a;
     b = a[0] * x + a[1] * y + a[2] * z;
   }
+  void inflate(double d) {
+    a -= d;
+    c += d;
+    s = c - a;
+    b = a[0] * x + a[1] * y + a[2] * z;
+  }
 
   /// returns the lower corner of the edge
   v::DVec<3> maxEdge(const v::DVec<3> &u, int i) const {

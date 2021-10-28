@@ -44,17 +44,8 @@ bool stupidOBBInt(const OBB &a, const OBB &b) {
 }
 
 void apply(OBB &p, v::DVec<3> trans, v::DVec<3> omega, v::DVec<3> c) {
+  omega /= 2;
   v::DVec<4> orot = getRotQuaternion(omega);
-  // TODO: REMOVE THIS
-  if (orot[0] != 1 || orot[1] || orot[2] || orot[3]) {
-    std::cerr << "FAILURE    >LLOL" << std::endl;
-    std::terminate();
-  }
-  if (v::norm2(p.b - c - applyQuaternion(p.b - c, orot)) >= 1e-20) {
-    std::cerr << "FAILURE    >LLOL" << std::endl;
-    std::terminate();
-  }
-
   p.b = trans + c + applyQuaternion(p.b - c, orot);
   p.x = applyQuaternion(p.x, orot);
   p.y = applyQuaternion(p.y, orot);
@@ -78,9 +69,9 @@ double getTime(const OBB &p, v::DVec<3> pv, v::DVec<3> omega1, v::DVec<3> pc,
 
 int testRot() {
   std::mt19937 mtrand(1);
-  std::uniform_real_distribution<> distro(-100, 100);
-  std::uniform_real_distribution<> smol(-0.05, 0.05);
-  std::uniform_real_distribution<> pdistro(0, 100);
+  std::uniform_real_distribution<> distro(-10, 10);
+  std::uniform_real_distribution<> smol(-0.3, 0.3);
+  std::uniform_real_distribution<> pdistro(0, 10);
   for (int spam = 0; spam < 100000; spam++) {
     if (spam % 1000 == 0) {
       std::cout << "Iteration #" << spam << std::endl;
@@ -97,7 +88,7 @@ int testRot() {
     v::DVec<3> qc{distro(mtrand), distro(mtrand), distro(mtrand)};
 
     CCDRotOBBIntersector inn(pp, {1, 1, 1}, omega1, pc, qp, {1, 1, 1}, omega2,
-                             qc, 1e-5);
+                             qc, 1e-2);
     for (int spam2 = 0; spam2 < 100; spam2++) {
       pp.p = {distro(mtrand), distro(mtrand), distro(mtrand)};
       qp.p = {distro(mtrand), distro(mtrand), distro(mtrand)};
@@ -119,13 +110,14 @@ int testRot() {
       apply(op, res1 * pv, res1 * omega1, pc);
       OBB oq = q;
       apply(oq, res1 * qv, res1 * omega2, qc);
-      op.a -= 1e-6;
-      op.c += 1e-6;
-      oq.a -= 1e-6;
-      oq.c += 1e-6;
+      op.a -= 0.05;
+      op.c += 0.05;
+      oq.a -= 0.05;
+      oq.c += 0.05;
       double df = res1 > res2 ? res1 - res2 : res2 - res1;
-      bool kekis = res1 <= 1 && (!op.isIn(resc.p) || !oq.isIn(resc.p));
-      if (df >= 0.01 || kekis) {
+      bool kekis = (res1 != 0 || !inn.overlapKek) && res1 <= 1 &&
+                   (!op.isIn(resc.p) || !oq.isIn(resc.p));
+      if (df >= 0.1 || kekis) {
         if (res1 <= 1 && res2 >= 1 && !kekis) {
           continue;
         }
@@ -290,7 +282,7 @@ int testLinear() {
 }
 int main() {
   // return testIntervalInt();
-  return testLinear();
-  // return testRot();
+  // return testLinear();
+  return testRot();
 }
 
