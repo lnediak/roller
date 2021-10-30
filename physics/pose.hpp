@@ -50,6 +50,56 @@ v::DVec<4> applyDAngVelo(const v::DVec<4> &q, const v::DVec<3> &w) {
   return normalizeQuaternion(quaternionMult(getRotQuaternion(w), q));
 }
 
+/// convert rotation matrix to quaternion
+v::DVec<4> rotMatToQuaternion(const DMat3x3 &rot) {
+  v::DVec<4> ret;
+  double s, trace = rot.a[0] + rot.b[1] + rot.c[2];
+  if (trace >= 0) {
+    s = std::sqrt(trace + 1);
+    ret[0] = 0.5 * s;
+    s = 0.5 / s;
+    ret[1] = (rot.c[1] - rot.b[2]) * s;
+    ret[2] = (rot.a[2] - rot.c[0]) * s;
+    ret[3] = (rot.b[0] - rot.a[1]) * s;
+    return ret;
+  }
+  int i = 0;
+  double tmp = rot.a[0];
+  if (rot.b[1] > rot.a[0]) {
+    i = 1;
+    tmp = rot.b[1];
+  }
+  if (rot.c[2] > tmp) {
+    i = 2;
+  }
+  switch (i) {
+  case 0:
+    s = std::sqrt((rot.a[0] - (rot.b[1] + rot.c[2])) + 1);
+    ret[1] = 0.5 * s;
+    s = 0.5 / s;
+    ret[2] = (rot.a[1] + rot.b[0]) * s;
+    ret[3] = (rot.c[0] + rot.a[2]) * s;
+    ret[0] = (rot.c[1] - rot.b[2]) * s;
+    return ret;
+  case 1:
+    s = std::sqrt((rot.b[1] - (rot.a[0] + rot.c[2])) + 1);
+    ret[2] = 0.5 * s;
+    s = 0.5 / s;
+    ret[3] = (rot.b[2] + rot.c[1]) * s;
+    ret[1] = (rot.a[1] + rot.b[0]) * s;
+    ret[0] = (rot.a[2] - rot.c[0]) * s;
+    return ret;
+  default:
+    s = std::sqrt((rot.c[2] - (rot.a[0] + rot.b[1])) + 1);
+    ret[3] = 0.5 * s;
+    s = 0.5 / s;
+    ret[1] = (rot.c[0] + rot.a[2]) * s;
+    ret[2] = (rot.b[2] + rot.c[1]) * s;
+    ret[0] = (rot.b[0] - rot.a[1]) * s;
+    return ret;
+  }
+}
+
 struct Pose {
 
   v::DVec<3> p{0, 0, 0};    /// translation

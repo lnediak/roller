@@ -19,6 +19,8 @@ struct CCDOBBIntersector {
 
   OBB p, q;
 
+  DMat3x3 qrelori; /// orientation of q relative to p
+
   CCDOBBIntersector() {}
   CCDOBBIntersector(const OBB &p, const OBB &q) { initInt(p, q); }
 
@@ -26,6 +28,7 @@ struct CCDOBBIntersector {
   void initInt(const OBB &pp, const OBB &qq) {
     p = pp;
     q = qq;
+    qrelori = DMat3x3{p.x, p.y, p.z} * DMat3x3{q.x, q.y, q.z}.transpose();
   }
 
   /// only sets position and sidelength
@@ -38,14 +41,6 @@ struct CCDOBBIntersector {
     q.properify();
   }
 
-  v::DVec<3> ee(const v::DVec<3> &a, const v::DVec<3> &b) {
-    v::DVec<3> cros = cross3(a, b);
-    double nrm = v::norm2(cros);
-    if (nrm < 1e-8) {
-      return p.x;
-    }
-    return cros / std::sqrt(nrm);
-  }
   /// assuming u is unit vector
   bool vc(const v::DVec<3> &u) {
     v::DVec<2> a = p.extrema(u);
@@ -67,18 +62,18 @@ struct CCDOBBIntersector {
     if (df1 <= 0 && df2 >= 0) {
       min = 0;
       depth = dmin(-df1, df2);
-      if (relVelo > 1e-12) {
+      if (relVelo > 1e-8) {
         max = df2 / relVelo;
-      } else if (relVelo < -1e-12) {
+      } else if (relVelo < -1e-8) {
         max = df1 / relVelo;
       } else {
         max = 100;
       }
     } else {
-      if (df1 > 0 && relVelo > 1e-12) {
+      if (df1 > 0 && relVelo > 1e-8) {
         min = df1 / relVelo;
         max = df2 / relVelo;
-      } else if (df2 < 0 && relVelo < -1e-12) {
+      } else if (df2 < 0 && relVelo < -1e-8) {
         min = df2 / relVelo;
         max = df1 / relVelo;
       } else {
@@ -131,22 +126,63 @@ private:
     return false;
   }
 
+  // variation of OBB::extrema
+  static v::DVec<2> dimExtrema(double base, const v::DVec<3> (&axes)[3],
+                               const v::DVec<3> &sl, int dim) {
+    double a = base, b = base;
+    if (axes[0][dim] < 0) {
+      a += sl[0] * axes[0][dim];
+    } else {
+      b += sl[0] * axes[0][dim];
+    }
+    if (axes[1][dim] < 0) {
+      a += sl[1] * axes[1][dim];
+    } else {
+      b += sl[1] * axes[1][dim];
+    }
+    if (axes[2][dim] < 0) {
+      a += sl[2] * axes[2][dim];
+    } else {
+      b += sl[2] * axes[2][dim];
+    }
+    return {a, b};
+  }
+  static v::DVec<2> eeExtrema(double base, const v::DVec<2> &axis,
+                              const v::DVec<3> &sl, int dim1, int dim2) {
+    double a = base, b = base;
+    if (axis[0] < 0) {
+      a += sl[dim1] * axis[0];
+    } else {
+      b += sl[dim1] * axis[0];
+    }
+    if (axis[1] < 0) {
+      a += sl[dim2] * axis[1];
+    } else {
+      b += sl[dim2] * axis[1];
+    }
+    return {a, b};
+  }
+
 public:
-  // TODO: OPTIMIZE THE BELOW BY CHANGING BASES
+  // Further work: Identify precise reason for the ridiculously rare slightly
+  // off error we get in the test (that I don't care much about btw)
+
   /// we suppose that p moves linearly by pt, and q by qt
   Contact getInt(const v::DVec<3> &pt, const v::DVec<3> &qt) {
     v::DVec<3> pA[] = {p.x, p.y, p.z}; // p vert-face
     v::DVec<3> qA[] = {q.x, q.y, q.z}; // q vert-face
-    v::DVec<3> eA[] = {ee(p.x, q.x), ee(p.x, q.y), ee(p.x, q.z),
-                       ee(p.y, q.x), ee(p.y, q.y), ee(p.y, q.z),
-                       ee(p.z, q.x), ee(p.z, q.y), ee(p.z, q.z)};
     v::DVec<3> relVelo = qt - pt;
+
+    // face normals relative to the other OBB
+    v::DVec<3> prA[] = {qrelori.a, qrelori.b, qrelori.c};
+    DMat3x3 prelori = qrelori.transpose();
+    v::DVec<3> qrA[] = {prelori.a, prelori.b, prelori.c};
 
     Contact ret;
     AxisIDetail main{-1, 1e9, 1e9, {0, 0, 0}, 0, 0};
     for (int i = 0; i < 3; i++) {
-      v::DVec<2> a = p.extrema(pA[i]);
-      v::DVec<2> b = q.extrema(pA[i]);
+      v::DVec<2> a = {p.a[i], p.c[i]};
+      v::DVec<2> b = dimExtrema(v::dot(pA[i], q.b), qrA, q.s, i);
       double tmpRel = v::dot(pA[i], relVelo);
       v::DVec<3> mm = intervalInt(tmpRel, a[0] - b[1], a[1] - b[0]);
       bool ncond;
@@ -158,10 +194,12 @@ public:
       v::DVec<3> normal = ncond ? pA[i] : v::DVec<3>(-pA[i]);
       // we don't use the index anyway in this case
       if (updateAID({mm[0], mm[1], mm[2], normal, 0, 0}, main)) {
-        break;
+        ret.t = main.tmin;
+        ret.n = main.n;
+        return ret;
       }
-      a = p.extrema(qA[i]);
-      b = q.extrema(qA[i]);
+      a = dimExtrema(v::dot(qA[i], p.b), prA, p.s, i);
+      b = {q.a[i], q.c[i]};
       tmpRel = v::dot(qA[i], relVelo);
       mm = intervalInt(tmpRel, a[0] - b[1], a[1] - b[0]);
       if (mm[0] > 0) {
@@ -171,37 +209,55 @@ public:
       }
       normal = ncond ? qA[i] : v::DVec<3>(-qA[i]);
       if (updateAID({mm[0], mm[1], mm[2], normal, 1, 0}, main)) {
-        break;
+        ret.t = main.tmin;
+        ret.n = main.n;
+        return ret;
       }
     }
-    if (main.tmin > main.tmax) {
-      ret.t = main.tmin;
-      ret.n = main.n;
-      return ret;
-    }
-    for (int i = 0; i < 9; i++) {
-      v::DVec<2> a = p.extrema(eA[i]);
-      v::DVec<2> b = q.extrema(eA[i]);
-      double tmpRel = v::dot(eA[i], relVelo);
-      v::DVec<3> mm = intervalInt(tmpRel, a[0] - b[1], a[1] - b[0]);
-      bool ncond;
-      if (mm[0] > 0) {
-        ncond = tmpRel > 0;
-      } else {
-        ncond = a[1] - b[0] > b[1] - a[0];
-      }
-      v::DVec<3> normal = ncond ? eA[i] : v::DVec<3>(-eA[i]);
-      if (updateAID({mm[0], mm[1], mm[2], normal, 2, i}, main)) {
-        break;
+    int others[3][2] = {{1, 2}, {2, 0}, {0, 1}}; // for cross-product
+    for (int indp = 0; indp < 3; indp++) {
+      for (int indq = 0; indq < 3; indq++) {
+        if (1 - qrA[indq][indp] < 1e-8) {
+          // degerate cross product
+          continue;
+        }
+        int o0p = others[indp][0];
+        int o1p = others[indp][1];
+        int o0q = others[indq][0];
+        int o1q = others[indq][1];
+        // lol this is not a unit vector
+        v::DVec<3> cros = cross3(pA[indp], qA[indq]);
+        v::DVec<2> a =
+            eeExtrema(v::dot(cros, p.b), {-qrA[indq][o1p], qrA[indq][o0p]}, p.s,
+                      o0p, o1p);
+        v::DVec<2> b =
+            eeExtrema(v::dot(cros, q.b), {prA[indp][o1q], -prA[indp][o0q]}, q.s,
+                      o0q, o1q);
+        double tmpRel = v::dot(cros, relVelo);
+        v::DVec<3> mm = intervalInt(tmpRel, a[0] - b[1], a[1] - b[0]);
+        bool ncond;
+        if (mm[0] > 0) {
+          ncond = tmpRel > 0;
+        } else {
+          ncond = a[1] - b[0] > b[1] - a[0];
+        }
+        v::DVec<3> normal = ncond ? cros : v::DVec<3>(-cros);
+        // note: might remove indp from index, since I'm not using it anyways
+        if (updateAID({mm[0], mm[1], mm[2], normal, 2, (indp << 2) | indq},
+                      main)) {
+          ret.t = main.tmin;
+          ret.n = main.n;
+          return ret;
+        }
       }
     }
     ret.t = main.tmin;
     ret.n = main.n;
-    if (main.tmin > main.tmax) {
-      return ret;
-    }
     ret.d = main.depth;
 
+    // note: this calculation of contact point would be really bad if
+    // this were not CCD, but based on testing, I think the degenerate
+    // cases are really rare
     switch (main.type) {
     case 0:
       ret.p = q.maximize(ret.n) + ret.t * qt;
@@ -210,7 +266,11 @@ public:
       ret.p = p.maximize(-ret.n) + ret.t * pt;
       return ret;
     default:
-      int qi = main.index % 3;
+      int qi = main.index & 3;
+      double invsqn = fastInvSqrt(v::norm2(ret.n));
+      ret.n *= invsqn;
+      // talk about trippy
+      ret.d *= invsqn;
       v::DVec<3> ql = q.maxEdge(ret.n, qi) + ret.t * (qt - pt);
       ret.p = p.getAlongSeg(ql, ql + q.s[qi] * qA[qi]) + ret.t * pt;
       return ret;

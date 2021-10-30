@@ -42,9 +42,13 @@ int main() {
   glCullFace(GL_BACK);
   glFrontFace(GL_CCW);
 
-  roller::SliceDirs sd = {
-      {15, 10, -20}, {-1, 0, 0}, {0, 0.7071, 0.7071}, {0, -0.7071, 0.7071}, 1.5,
-      1.5,           128};
+  roller::SliceDirs sd = {{100, 80, -120},
+                          {-1, 0, 0},
+                          {0, 0.7071, 0.7071},
+                          {0, -0.7071, 0.7071},
+                          1.5,
+                          1.5,
+                          256};
   std::vector<roller::Prism<GLMesh>> world;
   /*world.objs.emplace_back(v::DVec<3>{20, 30, 1}, v::DVec<3>{0, 33, -10}, 0);
   world.objs.emplace_back(v::DVec<3>{1, 2, 1}, v::DVec<3>{0, 8, -2}, 1);
@@ -59,16 +63,41 @@ int main() {
   world.objs.back().doRender = false;
   // world.objs.emplace_back(v::DVec<3>{1, 2, 1}, v::DVec<3>{0, 8, 2}, 1);
   */
-  v::DVec<3> sl1 = {9.67501, 6.7767, 8.67646};
+  v::DVec<3> b1 = {99.09796747704624, -94.23041213362805, 32.9722090258958};
+  v::DVec<3> sl1 = {13.309027721583904, 72.250546882134714, 78.944365750799378};
+  v::DVec<3> x1 = {0.56412915188846058, 0.58984828315316462,
+                   0.57778655475086138};
+  v::DVec<3> y1 = {0.68630241956766769, 0.054092773712392336,
+                   -0.72530197899058901};
+  v::DVec<3> z1 = {-0.45907220443539276, 0.80570030079016597,
+                   -0.37429899334818539};
   roller::Pose pose1;
-  pose1.p = {1.10539, -11.8452, -12.344};
-  pose1.q = {0.643683, -0.473474, 0.57681, 0.16966};
+  pose1.p = b1;
+  pose1.q = roller::rotMatToQuaternion(roller::DMat3x3{x1, y1, z1}.transpose());
+  v::DVec<4> qtest = roller::rotMatToQuaternion(pose1.toRotationMatrix());
+  if (v::norm2(pose1.q - qtest) >= 1e-8) {
+    std::cerr << "CHECK YOUR rotMatToQuaternion!!!!!!" << std::endl;
+    return 1;
+  }
   world.emplace_back(sl1 / 2, pose1.toWorldCoords(sl1 / 2), 0);
   world.back().pi.pose.q = pose1.q;
-  v::DVec<3> sl2 = {0.145758, 7.73647, 2.88868};
+  v::DVec<3> b2 = {69.661213826329458, -83.031677045612597,
+                   -62.664839198712251};
+  v::DVec<3> sl2 = {76.28469153294175, 19.901083146143105, 78.650146791614162};
+  v::DVec<3> x2 = {0.45711062741863417, 0.35964249065534648,
+                   -0.81345384205076765};
+  v::DVec<3> y2 = {0.00023988627748436353, 0.91454966018202322,
+                   0.4044735609463963};
+  v::DVec<3> z2 = {0.8894098136891172, -0.18508429961858811,
+                   0.41796409567593762};
   roller::Pose pose2;
-  pose2.p = {-2.82045, 0.561555, -9.22222};
-  pose2.q = {0.189117, -0.711096, -0.556603, 0.385708};
+  pose2.p = b2;
+  pose2.q = roller::rotMatToQuaternion(roller::DMat3x3{x2, y2, z2}.transpose());
+  qtest = roller::rotMatToQuaternion(pose2.toRotationMatrix());
+  if (v::norm2(pose2.q - qtest) >= 1e-8) {
+    std::cerr << "CHECK YOUR rotMatToQuaternion!!!!!!" << std::endl;
+    return 1;
+  }
   world.emplace_back(sl2 / 2, pose2.toWorldCoords(sl2 / 2), 0);
   world.back().pi.pose.q = pose2.q;
 
@@ -88,7 +117,7 @@ int main() {
     for (int spam = 0; spam < 3; spam++) {
       // solver.step(0.003);
     }
-    sd.c[0] -= 0.01;
+    sd.c[0] -= 0.1;
     for (std::size_t i = 0; i < world.size(); i++) {
       world[i].exportAllTriangles(sd, fun);
     }

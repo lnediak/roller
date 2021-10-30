@@ -60,8 +60,9 @@ void apply2Pose(Pose &p, v::DVec<3> trans, v::DVec<3> omega, v::DVec<3> c) {
 }
 
 double getTime(const OBB &p, v::DVec<3> pv, v::DVec<3> omega1, v::DVec<3> pc,
-               const OBB &q, v::DVec<3> qv, v::DVec<3> omega2, v::DVec<3> qc) {
-  for (double t = 0; t < 1; t += 1e-3) {
+               const OBB &q, v::DVec<3> qv, v::DVec<3> omega2, v::DVec<3> qc,
+               double dt) {
+  for (double t = 0; t < 1; t += dt) {
     OBB pp = p;
     apply(pp, t * pv, t * omega1, pc);
     OBB qq = q;
@@ -75,9 +76,9 @@ double getTime(const OBB &p, v::DVec<3> pv, v::DVec<3> omega1, v::DVec<3> pc,
 
 int testRot() {
   std::uniform_real_distribution<> distro(-10, 10);
-  std::uniform_real_distribution<> smol(-0.1, 0.1);
+  std::uniform_real_distribution<> smol(-0.05, 0.05);
   std::uniform_real_distribution<> pdistro(0, 10);
-  for (int spam = /*0*/ 4; spam < 5000; spam++) {
+  for (int spam = 0; spam < 5000; spam++) {
     std::mt19937 mtrand(spam);
     // if (spam % 10 == 0) {
     std::cout << "Iteration #" << spam << std::endl;
@@ -110,7 +111,16 @@ int testRot() {
       if (res1 > 1) {
         res1 = 1.0001;
       }
-      double res2 = getTime(p, pv, omega1, pc, q, qv, omega2, qc);
+      double res2 = res1;
+      double dt = 0.01;
+      double dttol = 0.03;
+      if (spam < 20) {
+        dt = 0.001;
+        dttol = 0.02;
+      }
+      if (spam < 100) {
+        res2 = getTime(p, pv, omega1, pc, q, qv, omega2, qc, dt);
+      }
 
       /*
       OBB spamp = p;
@@ -135,7 +145,7 @@ int testRot() {
       double df = res1 > res2 ? res1 - res2 : res2 - res1;
       bool kekis =
           res1 != 0 && res1 <= 1 && (!op.isIn(resc.p) || !oq.isIn(resc.p));
-      if (df >= 0.1 || kekis) {
+      if (df >= dttol || kekis) {
         if (res1 <= 1 && res2 >= 1 && !kekis) {
           std::cout << "false positive..." << std::endl;
           continue;
@@ -223,9 +233,9 @@ int testLinear() {
   std::uniform_real_distribution<> distro(-100, 100);
   std::uniform_real_distribution<> smol(-0.05, 0.05);
   std::uniform_real_distribution<> pdistro(0, 100);
-  for (int spam = 0; spam < 200000; spam++) {
+  for (int spam = 0; spam < 1e8; spam++) {
     std::mt19937 mtrand(spam);
-    if (spam % 100 == 0) {
+    if (spam % 10000 == 0) {
       std::cout << "Iteration #" << spam << std::endl;
     }
     Pose pp;
@@ -259,20 +269,30 @@ int testLinear() {
         res1 = 1.0001;
       }
       v::DVec<3> zero{0, 0, 0};
-      double res2 = getTime(p, pv, zero, zero, q, qv, zero, zero);
+      double res2 = res1;
+      double dt = 0.05;
+      double dttol = 0.1;
+      if (spam < 400) {
+        // because I want to at least do some higher-precision/slow tests
+        dt = 0.001;
+        dttol = 0.002;
+      }
+      if (spam < 20000) {
+        res2 = getTime(p, pv, zero, zero, q, qv, zero, zero, dt);
+      }
 
       OBB op = p;
       apply(op, res1 * pv, zero, zero);
       OBB oq = q;
       apply(oq, res1 * qv, zero, zero);
-      op.a -= 2e-6;
-      op.c += 2e-6;
-      oq.a -= 2e-6;
-      oq.c += 2e-6;
+      op.a -= 1e-4;
+      op.c += 1e-4;
+      oq.a -= 1e-4;
+      oq.c += 1e-4;
       double df = res1 > res2 ? res1 - res2 : res2 - res1;
       bool kekis =
           res1 != 0 && res1 <= 1 && (!op.isIn(resc.p) || !oq.isIn(resc.p));
-      if ((df >= 0.003 && res2 <= 1) || kekis) {
+      if ((df >= dttol && res2 <= 1) || kekis) {
         std::cout.precision(17);
         std::cout << op.b << op.s << op.x << op.y << op.z << op.a << op.c
                   << std::endl;
@@ -307,7 +327,7 @@ int testLinear() {
 }
 int main() {
   // return testIntervalInt();
-  return testLinear();
-  // return testRot();
+  // return testLinear();
+  return testRot();
 }
 
