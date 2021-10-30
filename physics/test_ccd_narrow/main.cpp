@@ -52,6 +52,12 @@ void apply(OBB &p, v::DVec<3> trans, v::DVec<3> omega, v::DVec<3> c) {
   p.z = applyQuaternion(p.z, orot);
   p.properify();
 }
+void apply2Pose(Pose &p, v::DVec<3> trans, v::DVec<3> omega, v::DVec<3> c) {
+  omega /= 2;
+  v::DVec<4> orot = getRotQuaternion(omega);
+  p.p = trans + c + applyQuaternion(p.p - c, orot);
+  p.q = normalizeQuaternion(quaternionMult(orot, p.q));
+}
 
 double getTime(const OBB &p, v::DVec<3> pv, v::DVec<3> omega1, v::DVec<3> pc,
                const OBB &q, v::DVec<3> qv, v::DVec<3> omega2, v::DVec<3> qc) {
@@ -68,14 +74,14 @@ double getTime(const OBB &p, v::DVec<3> pv, v::DVec<3> omega1, v::DVec<3> pc,
 }
 
 int testRot() {
-  std::mt19937 mtrand(1);
   std::uniform_real_distribution<> distro(-10, 10);
   std::uniform_real_distribution<> smol(-0.1, 0.1);
   std::uniform_real_distribution<> pdistro(0, 10);
-  for (int spam = 0; spam < 100000; spam++) {
-    if (spam % 1000 == 0) {
-      std::cout << "Iteration #" << spam << std::endl;
-    }
+  for (int spam = /*0*/ 4; spam < 5000; spam++) {
+    std::mt19937 mtrand(spam);
+    // if (spam % 10 == 0) {
+    std::cout << "Iteration #" << spam << std::endl;
+    // }
     Pose pp;
     pp.q = normalizeQuaternion(
         {distro(mtrand), distro(mtrand), distro(mtrand), distro(mtrand)});
@@ -89,7 +95,7 @@ int testRot() {
 
     CCDRotOBBIntersector inn(pp, {1, 1, 1}, omega1, pc, qp, {1, 1, 1}, omega2,
                              qc, 1e-2);
-    for (int spam2 = 0; spam2 < 100; spam2++) {
+    for (int spam2 = 0; spam2 < 1000; spam2++) {
       pp.p = {distro(mtrand), distro(mtrand), distro(mtrand)};
       qp.p = {distro(mtrand), distro(mtrand), distro(mtrand)};
       v::DVec<3> pv{distro(mtrand), distro(mtrand), distro(mtrand)};
@@ -122,15 +128,16 @@ int testRot() {
       apply(op, res1 * pv, res1 * omega1, pc);
       OBB oq = q;
       apply(oq, res1 * qv, res1 * omega2, qc);
-      op.a -= 0.02;
-      op.c += 0.02;
-      oq.a -= 0.02;
-      oq.c += 0.02;
+      op.a -= 0.01;
+      op.c += 0.01;
+      oq.a -= 0.01;
+      oq.c += 0.01;
       double df = res1 > res2 ? res1 - res2 : res2 - res1;
-      bool kekis = (res1 != 0 || !inn.overlapKek) && res1 <= 1 &&
-                   (!op.isIn(resc.p) || !oq.isIn(resc.p));
+      bool kekis =
+          res1 != 0 && res1 <= 1 && (!op.isIn(resc.p) || !oq.isIn(resc.p));
       if (df >= 0.1 || kekis) {
         if (res1 <= 1 && res2 >= 1 && !kekis) {
+          std::cout << "false positive..." << std::endl;
           continue;
         }
         std::cout << op.b << op.s << op.x << op.y << op.z << op.a << op.c
@@ -141,7 +148,13 @@ int testRot() {
                   << v::dot(op.z, resc.p) << std::endl;
         std::cout << v::dot(oq.x, resc.p) << " " << v::dot(oq.y, resc.p) << " "
                   << v::dot(oq.z, resc.p) << std::endl;
-        std::cout << resc.p << std::endl;
+        Pose ppp = pp;
+        Pose qpp = qp;
+        apply2Pose(ppp, res1 * pv, res1 * omega1, pc);
+        apply2Pose(qpp, res1 * qv, res1 * omega2, qc);
+        std::cout << ppp.p << ppp.q << std::endl;
+        std::cout << qpp.p << qpp.q << std::endl;
+        std::cout << resc.p << resc.d << " " << resc.n << std::endl;
 
         std::cerr << "FAIL!" << std::endl;
         std::cerr << "Iteration #" << spam << std::endl;
@@ -207,12 +220,12 @@ int testIntervalInt() {
   return 0;
 }
 int testLinear() {
-  std::mt19937 mtrand(1);
   std::uniform_real_distribution<> distro(-100, 100);
   std::uniform_real_distribution<> smol(-0.05, 0.05);
   std::uniform_real_distribution<> pdistro(0, 100);
-  for (int spam = 0; spam < 1000; spam++) {
-    if (spam % 10 == 0) {
+  for (int spam = 0; spam < 200000; spam++) {
+    std::mt19937 mtrand(spam);
+    if (spam % 100 == 0) {
       std::cout << "Iteration #" << spam << std::endl;
     }
     Pose pp;
@@ -229,7 +242,7 @@ int testLinear() {
               << v::dot(q.y, q.z) << std::endl;*/
 
     CCDOBBIntersector inn(p, q);
-    for (int spam2 = 0; spam2 < 100; spam2++) {
+    for (int spam2 = 0; spam2 < 3; spam2++) {
       pp.p = {distro(mtrand), distro(mtrand), distro(mtrand)};
       qp.p = {distro(mtrand), distro(mtrand), distro(mtrand)};
       v::DVec<3> pv{distro(mtrand), distro(mtrand), distro(mtrand)};
@@ -257,8 +270,8 @@ int testLinear() {
       oq.a -= 2e-6;
       oq.c += 2e-6;
       double df = res1 > res2 ? res1 - res2 : res2 - res1;
-      bool kekis = (res1 != 0 || !inn.overlapKek) && res1 <= 1 &&
-                   (!op.isIn(resc.p) || !oq.isIn(resc.p));
+      bool kekis =
+          res1 != 0 && res1 <= 1 && (!op.isIn(resc.p) || !oq.isIn(resc.p));
       if ((df >= 0.003 && res2 <= 1) || kekis) {
         std::cout.precision(17);
         std::cout << op.b << op.s << op.x << op.y << op.z << op.a << op.c
@@ -294,7 +307,7 @@ int testLinear() {
 }
 int main() {
   // return testIntervalInt();
-  // return testLinear();
-  return testRot();
+  return testLinear();
+  // return testRot();
 }
 

@@ -147,7 +147,7 @@ struct OBB {
     v::DVec<3> pp = {v::dot(p, x), v::dot(p, y), v::dot(p, z)};
     double lo = 0, hi = 1;
     for (int ind = 0; ind < 3; ind++) {
-      if (-1e-8 < dd[ind] && dd[ind] < 1e-8) {
+      if (-1e-6 < dd[ind] && dd[ind] < 1e-6) {
         // if ((a[ind] <= pp[ind]) ^ (pp[ind] <= c[ind])) {
         //   return false;
         // }

@@ -1,6 +1,7 @@
 #ifndef ROLLER_PHYSICS_PRISM_HPP_
 #define ROLLER_PHYSICS_PRISM_HPP_
 
+#include "obb.hpp"
 #include "phys_info.hpp"
 
 namespace roller {
@@ -38,10 +39,12 @@ template <class Tag> struct Prism {
   AABB getAABB() const { return getOBB().getAABB(); }
   PhysInfo &physInfo() const { return pi; }
 
+  /*
   Contact getContacts(const Prism &q) const {
     OBBIntersector inter(getOBB(), q.getOBB());
     return inter.getInts();
   }
+  */
 
   template <class Fun> void exportAllTriangles(const SliceDirs &sd, Fun &&fun) {
     v::DVec<16> projMat = pi.pose.toProjMat(sd);
