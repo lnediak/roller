@@ -83,6 +83,8 @@ template <class Obj> class CoalescedObj {
 public:
   CoalescedObj(const std::vector<Obj *> &objs) : objs(objs) { evalPhysInfo(); }
 
+  const std::vector<Obj *> &listObjs() { return objs; }
+
   AABB getAABB() const {
     AABB ret = objs[0].getAABB();
     for (std::size_t i = 1, sz = objs.size(); i < sz; i++) {

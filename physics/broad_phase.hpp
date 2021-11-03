@@ -129,7 +129,9 @@ public:
 
 private:
   std::vector<AABB> tmp;
-  void updateAABBStuff0(std::vector<int> &dsort, std::size_t d) {
+  template <class Fun>
+  void updateAABBStuff0(std::vector<int> &dsort, std::size_t d,
+                        Fun &&callback) {
     int rpi = dsort[0]; // real previous index
     double rp = tmp[rpi / 2].m[rpi & 1][d];
     for (std::size_t ind = 1, sz = dsort.size(); ind < sz; ind++) {
@@ -149,8 +151,10 @@ private:
         if ((tci & 1) != (tpi & 1)) {
           if (tmp[tpi / 2].intersects(tmp[tci / 2])) {
             aabbInts.insert({tpi / 2, tci / 2});
+            callback(tpi / 2, tci / 2, true);
           } else {
             aabbInts.erase({tpi / 2, tci / 2});
+            callback(tpi / 2, tci / 2, false);
           }
         }
         dsort[cind] = tpi;
@@ -173,7 +177,11 @@ private:
   }
 
 public:
-  void updateAABBStuff() {
+  struct NoOp {
+    void operator()(int i, int j, bool isAdd) const {}
+  };
+  template <class Fun = const NoOp &>
+  void updateAABBStuff(Fun &&callback = Fun()) {
     if (nObjs != w.numObjs()) {
       // maybe can do an incremental update that's faster
       initAABBStuff();
@@ -183,9 +191,9 @@ public:
     for (std::size_t i = 0; i < nObjs; i++) {
       tmp[i] = w.getAABB(i);
     }
-    updateAABBStuff0(xsort, 0);
-    updateAABBStuff0(ysort, 1);
-    updateAABBStuff0(zsort, 2);
+    updateAABBStuff0(xsort, 0, std::forward<Fun>(callback));
+    updateAABBStuff0(ysort, 1, std::forward<Fun>(callback));
+    updateAABBStuff0(zsort, 2, std::forward<Fun>(callback));
   }
 
   /// calls fun(i, j) for all i,j indices of intersecting object AABBs

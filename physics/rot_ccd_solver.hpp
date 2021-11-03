@@ -2,6 +2,7 @@
 #define ROLLER_PHYSICS_ROT_CCD_SOLVER_HPP_
 
 #include <cmath>
+#include <set>
 #include <vector>
 
 #include "coalesced_obj.hpp"
@@ -65,8 +66,6 @@ bool doCollisionResponse(const Contact &con, PhysInfo &api, PhysInfo &bpi,
 
   Obj template: Refers to an object. Must have the following:
 
-  AABB obj.getAABB() const
-    - gets an AABB for the object
   v::DVec<3> getSurfaceDetail(const Obj &o, const v::DVec<3> &p) const
     - returns {elasticity, static friction, kinetic friction}
   PhysInfo obj.physInfo() const
@@ -74,26 +73,39 @@ bool doCollisionResponse(const Contact &con, PhysInfo &api, PhysInfo &bpi,
   void obj.setPhysInfo(const PhysInfo &pi)
     - sets this object's physInfo
 
-  and the hardest one (needs to handle screw motion):
-
-  template <class Fun1, class Fun2>
-  Contact doCCD(double velo1, v::DVec<3> omega1, v::DVec<3> c1, const Obj
-  &other, double velo2, v::DVec<3> omega2, v::DVec<3> c2)
+  Contact doCCD(v::DVec<3> velo1, v::DVec<3> omega1, v::DVec<3> c1, const Obj
+  &other, v::DVec<3> velo2, v::DVec<3> omega2, v::DVec<3> c2) const
     - returns a Contact where 0<=c.t<=1, and for no contact, c.t can be any
       value >1. *this is considered to be travelling in screw motion with
-      primary velocity velo1, and with circular portion around
-      pose.p+toR1+t*velo1 at constant angular velocity omega1, while other going
-      velo2 and is around other.pose.p+toR2+t*velo2 at angular velocity omega2
+      primary velocity velo1, and with circular portion around c1+t*velo1 at
+      constant angular velocity omega1, while other going velo2 and is around
+      c2+t*velo2 at angular velocity omega2
+  AABB obj.getAABB(v::DVec<3> velo, v::DVec<3> omega, v::Dvec<3> c) const
+    - gets an AABB for the object in screw motion (as above)
 */
 template <class Obj> class RotCCDSolver {
 
   // XXX: cache physinfo/auxphysinfo
   std::vector<Obj> objs;
   std::vector<CoalescedObj<Obj>> cobjs;
+  std::size_t cobjsSz = 0;
   /// has same sz as objs, if nonnegative is index in cobjs
-  std::vector<int> trueObjs;
+  std::vector<int> trueObjs; // XXX: see if union-find does better
 
   double g; // acceleration of gravity
+
+  struct AABBProvider {
+    RotCCDSolver &s;
+    double dt;
+    std::size_t numObjs() const { return s.objs.size(); }
+    AABB getAABB(std::size_t i) const {
+      PhysInfo pi = s.getBasePhysInfo(i);
+      AuxPhysInfo aux = pi.getAuxInfo();
+      return objs[i].getAABB(dt * aux.velo, dt * aux.omega, pi.pose.p);
+    }
+  };
+  AABBProvider bProvider;
+  BroadPhaseAABB<AABBProvider &> broadPhase;
 
   struct Collision {
     Contact c;
@@ -111,7 +123,9 @@ template <class Obj> class RotCCDSolver {
   std::set<Collision, CollisionOrder> cols; // collisions
 
 public:
-  RotCCDSolver(W &&w, double g) : w(std::forward<W>(w)), g(g) {}
+  RotCCDSolver(std::vector<Obj> &&objs, double g)
+      : objs(objs), g(g), bProvider{*this, 1. /*arbitrary*/},
+        broadPhase(bProvider) {}
 
   PhysInfo getBasePhysInfo(int i) const {
     int oi = tmpObjs[i];
@@ -145,8 +159,7 @@ public:
   }
 
   /// returns true when no collisions
-  bool processCollisions(double &time) {
-    std::vector<decltype(cols.cbegin())> erasureList;
+  bool processCollision(double &time) {
     // since cols is std::set, this will start from the earliest collision
     for (auto iter = cols.cbegin(), iter_end = cols.cend(); iter != iter_end;
          ++iter) {
@@ -171,69 +184,67 @@ public:
         int jjn = tmpObjs[j];
         for (std::size_t ii = 0, sz = cobjs.size(); ii < sz; ii++) {
           if (ii != iin && ii != jjn) {
-            PhysInfo tmp = co.physInfo();
+            PhysInfo tmp = cobjs[ii].physInfo();
             AuxPhysInfo taux = tmp.getAuxInfo();
             tmp.stepTime<false>(taux, col.c.t);
-            co.setPhysInfo(tmp);
+            cobjs[ii].setPhysInfo(tmp);
           }
         }
+        // XXX: do this more efficiently
+        std::vector<Obj *> ccobjs; // for passing to CoalescedObj
+        if (tmpObjs[i] < 0) {
+          ccobjs.push_back(&objs[i]);
+        } else {
+          for (Obj *ptr : cobjs[tmpObjs[i]].listObjs()) {
+            ccobjs.push_back(ptr);
+          }
+        }
+        if (tmpObjs[j] < 0) {
+          ccobjs.push_back(&objs[j]);
+        } else {
+          for (Obj *ptr : cobjs[tmpObjs[j]].listObjs()) {
+            ccobjs.push_back(ptr);
+          }
+        }
+        std::size_t ind = cobjs.size();
+        cobjs.emplace_back(ccobjs);
+        tmpObjs[i] = ind;
+        tmpObjs[j] = ind;
         return false;
-      } else {
-        erasureList.push_back(iter);
       }
-    }
-    for (const auto &ii : erasureList) {
-      cols.erase(ii);
     }
     return true;
   }
 
   void step(double dt) {
     cols.clear();
-    while (/**/) {
-      for (std::size_t i = 0; i < numObjs; i++) {
-        p[i].pose = porig[i].pose;
-        x[i] = p[i].getAuxInfo();
-        p[i].stepTime(x[i], dt, g);
-        x[i] = p[i].getAuxInfo();
-        w.getObj(i).setPhysInfo(p[i]);
-      }
-      w.exportAllAABBInts([this](int i, int j) -> void { addCollision(i, j); });
-      if (cols.empty()) {
+    tmpObjs = trueObjs;
+    double time = 0;
+    while (time < dt) {
+      bProvider.dt = dt - time;
+      broadPhase.exportAllAABBInts(
+          [this](int i, int j) -> void { addCollision(i, j); });
+      if (processCollisions(time)) {
         break;
       }
-      for (const Collision &col : cols) {
-        processCollision(col, 1);
+    }
+    if (time < dt) {
+      for (std::size_t i = 0, sz = objs.size(); i < sz; i++) {
+        if (tmpObjs[i] < 0) {
+          PhysInfo tmp = objs[i].physInfo();
+          AuxPhysInfo taux = tmp.getAuxInfo();
+          tmp.stepTime<false>(taux, dt - time);
+          objs[i].setPhysInfo(tmp);
+        }
+      }
+      for (std::size_t i = 0, sz = cobjs.size(); i < sz; i++) {
+        PhysInfo tmp = cobjs[i].physInfo();
+        AuxPhysInfo taux = tmp.getAuxInfo();
+        tmp.stepTime<false>(taux, dt - time);
+        cobjs[i].setPhysInfo(tmp);
       }
     }
-    for (std::size_t i = 0; i < numObjs; i++) {
-      p[i].pose = porig[i].pose;
-      p[i].stepVelo(dt, g);
-    }
-    // contact resolution passes
-    for (int spam = 0; spam < 5; spam++) {
-      for (std::size_t i = 0; i < numObjs; i++) {
-        p[i].pose = porig[i].pose;
-        x[i] = p[i].getAuxInfo();
-        p[i].stepTime(x[i], dt, 0);
-        x[i] = p[i].getAuxInfo();
-        w.getObj(i).setPhysInfo(p[i]);
-      }
-      w.exportAllAABBInts([this](int i, int j) -> void { addCollision(i, j); });
-      if (cols.empty()) {
-        break;
-      }
-      for (const Collision &col : cols) {
-        std::cout << "COLLISION?????" << std::endl;
-        processCollision(col, 0);
-      }
-    }
-    for (std::size_t i = 0; i < numObjs; i++) {
-      p[i].pose = porig[i].pose;
-      x[i] = p[i].getAuxInfo();
-      p[i].stepTime(x[i], dt, 0);
-      w.getObj(i).setPhysInfo(p[i]);
-    }
+    cobjs.resize(cobjsSz);
   }
 };
 
