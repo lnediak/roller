@@ -50,6 +50,21 @@ v::DVec<4> applyDAngVelo(const v::DVec<4> &q, const v::DVec<3> &w) {
   return normalizeQuaternion(quaternionMult(getRotQuaternion(w), q));
 }
 
+/// convert quaternion to rotation matrix
+DMat3x3 quaternionToRotMat(const v::DVec<4> &q) const {
+  double x2 = 2 * q[1] * q[1];
+  double y2 = 2 * q[2] * q[2];
+  double z2 = 2 * q[3] * q[3];
+  double xy = q[1] * q[2];
+  double xz = q[1] * q[3];
+  double yz = q[2] * q[3];
+  double sx = q[0] * q[1];
+  double sy = q[0] * q[2];
+  double sz = q[0] * q[3];
+  return {{1 - y2 - z2, 2 * (xy - sz), 2 * (xz + sy)},
+          {2 * (xy + sz), 1 - x2 - z2, 2 * (yz - sx)},
+          {2 * (xz - sy), 2 * (yz + sx), 1 - x2 - y2}};
+}
 /// convert rotation matrix to quaternion
 v::DVec<4> rotMatToQuaternion(const DMat3x3 &rot) {
   v::DVec<4> ret;
@@ -105,20 +120,7 @@ struct Pose {
   v::DVec<3> p{0, 0, 0};    /// translation
   v::DVec<4> q{1, 0, 0, 0}; /// rotation
 
-  DMat3x3 toRotationMatrix() const {
-    double x2 = 2 * q[1] * q[1];
-    double y2 = 2 * q[2] * q[2];
-    double z2 = 2 * q[3] * q[3];
-    double xy = q[1] * q[2];
-    double xz = q[1] * q[3];
-    double yz = q[2] * q[3];
-    double sx = q[0] * q[1];
-    double sy = q[0] * q[2];
-    double sz = q[0] * q[3];
-    return {{1 - y2 - z2, 2 * (xy - sz), 2 * (xz + sy)},
-            {2 * (xy + sz), 1 - x2 - z2, 2 * (yz - sx)},
-            {2 * (xz - sy), 2 * (yz + sx), 1 - x2 - y2}};
-  }
+  DMat3x3 toRotationMatrix() const { return quaternionToRotMat(q); }
   v::DVec<16> toProjMat() const {
     DMat3x3 r = toRotationMatrix();
     return {r.a[0], r.a[1], r.a[2], p[0], r.b[0], r.b[1], r.b[2], p[1],

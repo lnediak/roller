@@ -54,30 +54,41 @@ struct PhysInfo {
     updateAuxRotInfo(ret);
     return ret;
   }
+};
+
+struct CPhysInfo {
+  PhysInfo pi;
+  AuxPhysInfo aux;
+
+  CPhysInfo(const PhysInfo &pi) : pi(pi), aux(pi.getAuxInfo()) {}
+  CPhysInfo(const PhysInfo &pi, const AuxPhysInfo &aux) : pi(pi), aux(aux) {}
+
+  void updateAux() { aux = pi.getAuxInfo(); }
+  /// if the linear momentum did not change
+  void updateAuxRot() { pi.updateAuxRotInfo(aux); }
 
   /// velocity at point p
-  v::DVec<3> getVelocity(const AuxPhysInfo &aux, const v::DVec<3> &p) const {
-    return aux.velo + cross3(aux.omega, p - pose.p);
+  v::DVec<3> getVelocity(const v::DVec<3> &p) const {
+    return aux.velo + cross3(aux.omega, p - pi.pose.p);
   }
 
   /// Uses Euler's method. Does not update velocity.
-  template <bool updateAux>
-  void stepTime(AuxPhysInfo &aux, double dt, double g) {
-    if (!mass) {
+  template <bool updateA> void stepTime(double dt, double g) {
+    if (!pi.mass) {
       return;
     }
-    pose.p += dt * aux.velo;
-    pose.q = applyDAngVelo(pose.q, 0.5 * dt * aux.omega);
-    if (updateAux) {
-      updateAuxRotInfo(aux);
+    pi.pose.p += dt * aux.velo;
+    pi.pose.q = applyDAngVelo(pi.pose.q, 0.5 * dt * aux.omega);
+    if (updateA) {
+      pi.updateAuxRotInfo(aux);
     }
   }
-  template <bool updateAux>
-  void stepVelo(AuxPhysInfo &aux, double dt, double g) {
-    double imp = dt * g;
-    lm[2] -= imp * mass;
-    if (updateAux) {
-      aux.velo[2] -= imp;
+  template <bool updateA> void stepVelo(double dt, double g) {
+    double dv = dt * g;
+    // gravity applies on z-axis
+    pi.lm[2] -= dv * pi.mass;
+    if (updateA) {
+      aux.velo[2] -= dv;
     }
   }
 };

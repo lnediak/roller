@@ -2,6 +2,7 @@
 #define ROLLER_UTIL_HPP_
 
 #include <cmath>
+#include <functional>
 
 #include "vector.hpp"
 
@@ -10,6 +11,26 @@ namespace roller {
 union Color {
   unsigned char c[4];
   float f;
+};
+
+template <class T> struct UnorderedPair { T a, b; };
+template <class T, class H = std::hash<T>> struct UnorderedPairHash {
+  H h;
+  /// a sloppily done unordered hash mixing function
+  std::size_t operator()(const UnorderedPair<T> &p) const noexcept {
+    std::size_t ha = h(p.a);
+    std::size_t hb = h(p.b);
+    // source for the constants: MurmurHash
+    std::size_t mix = (ha + hb) * 0xcc9e2d51 + ha * hb;
+    return mix * 0xc6a4a7935bd1e995;
+  }
+};
+template <class T, class Eq = std::equal_to<T>> struct UnorderedPairEq {
+  Eq eq;
+  bool operator()(const UnorderedPair<T> &a,
+                  const UnorderedPair<T> &b) const noexcept {
+    return (eq(a.a, b.a) && eq(a.b, b.b)) || (eq(a.a, b.b) && eq(a.b, b.a));
+  }
 };
 
 struct SliceDirs {
@@ -471,4 +492,3 @@ typename A::value_type vlerpAll(const A &vecpow, const B &lerp) {
 } // namespace roller
 
 #endif // ROLLER_UTIL_HPP_
-

@@ -6,71 +6,64 @@
 #include <vector>
 
 #include "aabb.hpp"
+#include "util.hpp"
 
 namespace roller {
 
 /**
-  W template: All this needs is two functions:
-  std::size_t numObjs() const, and
-  AABB &getAABB(std::size_t).
+  W template: Needs the follows
+  typedef ? iterator;  // just needs to support ++ and !=
+  typedef ? iter_hash; // a hash for iterator
+  typedef ? iter_eq;   // a equality functor for iterator
+  iterator begin() const ;
+  iterator end() const ;
+  AABB getAABB(iterator) const ;
+  Note: getAABB should be fast
+
+  IgnFun template (used in class body): Needs the follows
+  bool operator()(W::iterator a, W::iterator b) const;
+  which returns true if collision between a and b should be ignored
 */
 template <class W> class BroadPhaseAABB {
 
-  struct IP {
-    int i, j; /// note: unordered
-  };
-  struct IPHash {
-    std::size_t operator()(const IP &a) const noexcept {
-      unsigned mix = ((a.i + a.j) << 16) + a.i * a.j;
-      // part of murmurhash's mixing
-      mix *= 0xcc9e2d51;
-      // mix = (mix << 15) | (mix >> 17);
-      // mix *= 0x1b873593;
-      return mix;
-    }
-  };
-  struct IPEq {
-    bool operator()(const IP &a, const IP &b) const noexcept {
-      return (a.i == b.i && a.j == b.j) || (a.i == b.j && a.j == b.i);
-    }
-  };
-
-  W w; /// access point for all info about world
+  W w; /// access point for AABBs
+  typedef rem_cvr<W> clnW;
+  typedef typename clnW::iterator Witer;
+  typedef typename clnW::iter_hash WiterHash;
+  typedef typename clnW::iter_eq WiterEq;
 
   // AABB stuff
-  std::size_t nObjs;
-  std::vector<int> xsort, ysort, zsort; /// each is 2 * obj_ind + (is AABB max)
-  std::unordered_set<IP, IPHash, IPEq> aabbInts; /// pairs of intersecting AABBs
+  struct Entry {
+    Witer i;
+    bool b; // is this the max of the AABB along the axis in question?
+  };
+  std::vector<Entry> xsort, ysort, zsort;
+  /// pairs of intersecting AABBs
+  std::unordered_set<UnorderedPair<Witer>, UnorderedPairHash<Witer, WiterHash>,
+                     UnorderedPairEq<Witer, WiterEq>>
+      aabbInts;
 
-  void initAABBStuff() {
-    nObjs = w.numObjs();
-    xsort.resize(nObjs * 2);
-    ysort.resize(nObjs * 2);
-    zsort.resize(nObjs * 2);
-    std::vector<double> cached[3];
-    cached[0].resize(nObjs * 2);
-    cached[1].resize(nObjs * 2);
-    cached[2].resize(nObjs * 2);
-    for (std::size_t in = 0; in < nObjs; in++) {
-      AABB aabb = w.getAABB(in);
-      std::size_t i = 2 * in;
-      xsort[i] = i;
-      cached[0][i] = aabb.m[0][0];
-      ysort[i] = i;
-      cached[1][i] = aabb.m[0][1];
-      zsort[i] = i;
-      cached[2][i] = aabb.m[0][2];
-      i++;
-      xsort[i] = i;
-      cached[0][i] = aabb.m[1][0];
-      ysort[i] = i;
-      cached[1][i] = aabb.m[1][1];
-      zsort[i] = i;
-      cached[2][i] = aabb.m[1][2];
+  template <class IgnFun> void initAABBStuff(IgnFun &&ignFun) {
+    aabbInts.clear();
+    xsort.clear();
+    ysort.clear();
+    zsort.clear();
+    int nObjs = 0;
+    for (Witer it = w.begin(), ite = w.end(); it != ite; ++it) {
+      xsort.push_back({it, false});
+      ysort.push_back({it, false});
+      zsort.push_back({it, false});
+      xsort.push_back({it, true});
+      ysort.push_back({it, true});
+      zsort.push_back({it, true});
+      nObjs++;
+    }
+    if (!nObjs) {
+      return;
     }
     int xyz;
-    auto cmp = [this, &cached, &xyz](int a, int b) -> bool {
-      return cached[xyz][a] < cached[xyz][b];
+    auto cmp = [this, &xyz](const Entry &a, const Entry &b) -> bool {
+      return w.getAABB(a.i).m[a.b][xyz] < w.getAABB(b.i).m[b.b][xyz];
     };
     // sort...
     xyz = 0;
@@ -83,124 +76,131 @@ template <class W> class BroadPhaseAABB {
     std::size_t bloat = 3 * nObjs / 2;
     decltype(aabbInts) tmpx(bloat), tmpy(bloat);
     aabbInts.reserve(bloat);
-    std::unordered_set<int> active(bloat);
-    for (int i : xsort) {
-      if (i & 1) {
-        active.erase(i / 2); // note: assuming no degenerate AABBs
+    std::unordered_set<Witer, WiterHash, WiterEq> active(bloat);
+    for (const Entry &e : xsort) {
+      if (e.b) {
+        active.erase(e.i); // note: assuming no degenerate AABBs
       } else {
-        int ii = i / 2;
-        for (int j : active) {
-          tmpx.insert({ii, j});
+        for (const Witer &fi : active) {
+          tmpx.insert({e.i, fi});
         }
-        active.insert(ii);
+        active.insert(e.i);
       }
     }
     // active should be empty right now
-    for (int i : ysort) {
-      if (i & 1) {
-        active.erase(i / 2);
+    for (const Entry &e : ysort) {
+      if (e.b) {
+        active.erase(e.i);
       } else {
-        int ii = i / 2;
-        for (int j : active) {
-          if (tmpx.count({ii, j})) {
-            tmpy.insert({ii, j});
+        for (const Witer &fi : active) {
+          if (tmpx.count({e.i, fi})) {
+            tmpy.insert({e.i, fi});
           }
         }
-        active.insert(ii);
+        active.insert(e.i);
       }
     }
-    for (int i : zsort) {
-      if (i & 1) {
-        active.erase(i / 2);
+    for (const Entry &e : zsort) {
+      if (e.b) {
+        active.erase(e.i);
       } else {
-        int ii = i / 2;
-        for (int j : active) {
-          if (tmpy.count({ii, j})) {
-            aabbInts.insert({ii, j});
+        for (const Witer &fi : active) {
+          if (!ignFun(e.i, fi) && tmpy.count({e.i, fi})) {
+            aabbInts.insert({e.i, fi});
           }
         }
-        active.insert(ii);
+        active.insert(e.i);
       }
     }
   }
 
 public:
-  BroadPhase(W &&w) : w(w) { initAABBStuff(); }
+  struct IgnNoOp {
+    bool operator()(Witer, Witer) const { return false; }
+  };
+  BroadPhaseAABB(W &&w) : w(w) { initAABBStuff(IgnNoOp()); }
+  template <class IgnFun = IgnNoOp &&>
+  BroadPhaseAABB(W &&w, IgnFun &&ignFun = IgnNoOp()) : w(w) {
+    initAABBStuff(std::forward<IgnFun>(ignFun));
+  }
 
 private:
-  std::vector<AABB> tmp;
-  template <class Fun>
-  void updateAABBStuff0(std::vector<int> &dsort, std::size_t d,
-                        Fun &&callback) {
-    int rpi = dsort[0]; // real previous index
-    double rp = tmp[rpi / 2].m[rpi & 1][d];
+  template <class IgnFun, class Fun>
+  void updateAABBStuff0(std::vector<Entry> &dsort, std::size_t d,
+                        IgnFun &&ignFun, Fun &&callback) {
+    if (dsort.empty()) {
+      return;
+    }
+    Entry rpe = dsort[0]; // real previous entry
+    double rp = w.getAABB(rpe.i).m[rpe.b][d];
+    // insertion sort
     for (std::size_t ind = 1, sz = dsort.size(); ind < sz; ind++) {
       std::size_t cind = ind;
-      int tci = dsort[cind];
-      int tpi = rpi;
-      double tc = tmp[tci / 2].m[tci & 1][d];
+      Entry tce = dsort[cind]; // temporary current entry
+      Entry tpe = rpe;         // temporary previous entry
+      double tc = w.getAABB(tce.i).m[tce.b][d];
       double tp = rp;
       if (tp <= tc) {
-        rpi = tci;
+        rpe = tce;
         rp = tc;
         continue;
       }
-      int rci = tci;
-      int rc = tc;
+      rpe = tpe;
+      rp = tp;
+
       do {
-        if ((tci & 1) != (tpi & 1)) {
-          if (tmp[tpi / 2].intersects(tmp[tci / 2])) {
-            aabbInts.insert({tpi / 2, tci / 2});
-            callback(tpi / 2, tci / 2, true);
+        dsort[cind] = tpe;
+        dsort[--cind] = tce;
+        if (tpe.b != tce.b && !ignFun(tpe.i, tce.i)) {
+          if (w.getAABB(tpe.i).intersects(w.getAABB(tce.i))) {
+            if (aabbInts.insert({tpe.i, tce.i}).second) {
+              callback(tpe.i, tce.i, true);
+            }
           } else {
-            aabbInts.erase({tpi / 2, tci / 2});
-            callback(tpi / 2, tci / 2, false);
+            if (aabbInts.erase({tpe.i, tce.i})) {
+              callback(tpe.i, tce.i, false);
+            }
           }
         }
-        dsort[cind] = tpi;
-        dsort[--cind] = tci;
-
         if (!cind) {
           break;
         }
-        tci = tpi;
-        tpi = dsort[cind - 1];
-        tc = tp;
-        tp = tmp[tpi / 2].m[tpi & 1][d];
-        if (tp <= tc) {
-          break;
-        }
-      } while (true);
-      rpi = rci;
-      rp = rc;
+        tpe = dsort[cind - 1];
+        tp = w.getAABB(tpe.i).m[tpe.b][d];
+      } while (tp > tc);
     }
   }
 
 public:
   struct NoOp {
-    void operator()(int i, int j, bool isAdd) const {}
+    void operator()(Witer, Witer, bool) const {}
   };
-  template <class Fun = const NoOp &>
-  void updateAABBStuff(Fun &&callback = Fun()) {
-    if (nObjs != w.numObjs()) {
-      // maybe can do an incremental update that's faster
-      initAABBStuff();
+  /// TODO: callback doesn't work if changedW
+  /*
+    changedW: refers to whether w.begin() through w.end() have changed
+    callback: calls callback(a, b, isAdd), where isAdd is true if {a, b} is a
+    new collision, and false if {a, b} is now not a collision
+  */
+  template <class IgnFun = IgnNoOp &&, class Fun = NoOp &&>
+  void updateAABBStuff(IgnFun &&ignFun = IgnNoOp(), bool changedW = true,
+                       Fun &&callback = NoOp()) {
+    if (changedW) {
+      // TODO: do a faster incremental update
+      initAABBStuff(std::forward<IgnFun>(ignFun));
       return;
     }
-    tmp.resize(nObjs);
-    for (std::size_t i = 0; i < nObjs; i++) {
-      tmp[i] = w.getAABB(i);
-    }
-    updateAABBStuff0(xsort, 0, std::forward<Fun>(callback));
-    updateAABBStuff0(ysort, 1, std::forward<Fun>(callback));
-    updateAABBStuff0(zsort, 2, std::forward<Fun>(callback));
+    updateAABBStuff0(xsort, 0, std::forward<IgnFun>(ignFun),
+                     std::forward<Fun>(callback));
+    updateAABBStuff0(ysort, 1, std::forward<IgnFun>(ignFun),
+                     std::forward<Fun>(callback));
+    updateAABBStuff0(zsort, 2, std::forward<IgnFun>(ignFun),
+                     std::forward<Fun>(callback));
   }
 
   /// calls fun(i, j) for all i,j indices of intersecting object AABBs
   template <class Fun> void exportInts(Fun &&fun) {
-    updateAABBStuff();
-    for (IP ip : aabbInts) {
-      fun(ip.i, ip.j);
+    for (auto &pair : aabbInts) {
+      fun(pair.a, pair.b);
     }
   }
 };
@@ -208,4 +208,3 @@ public:
 } // namespace roller
 
 #endif // ROLLER_PHYSICS_BROAD_PHASE_HPP_
-

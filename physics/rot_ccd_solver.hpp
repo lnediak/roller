@@ -2,7 +2,7 @@
 #define ROLLER_PHYSICS_ROT_CCD_SOLVER_HPP_
 
 #include <cmath>
-#include <set>
+#include <unordered_map>
 #include <vector>
 
 #include "coalesced_obj.hpp"
@@ -10,34 +10,33 @@
 
 namespace roller {
 
-bool doCollisionResponse(const Contact &con, PhysInfo &api, PhysInfo &bpi,
-                         AuxPhysInfo &aaux, AuxPhysInfo &baux,
+bool doCollisionResponse(const Contact &con, CPhysInfo &api, CPhysInfo &bpi,
                          const v::DVec<3> &surfaceDetail) {
-  PhysInfo aopi = api;
-  PhysInfo bopi = bpi;
-  api.stepTime<false>(aaux, con.t);
-  bpi.stepTime<false>(baux, con.t);
+  PhysInfo aopi = api.pi;
+  PhysInfo bopi = bpi.pi;
+  api.stepTime<false>(con.t);
+  bpi.stepTime<false>(con.t);
   v::DVec<3> pos = con.p;
   v::DVec<3> normal = con.n;
   v::DVec<3> urel = api.getVelocity(aaux, pos) - bpi.getVelocity(baux, pos);
   double ureln = v::dot(urel, normal);
   if (ureln > 0) {
-    api = aopi;
-    bpi = bopi;
+    api.pi = aopi;
+    bpi.pi = bopi;
     return false;
   }
-  aaux = api.getAuxInfo();
-  baux = bpi.getAuxInfo();
+  api.updateAux();
+  bpi.updateAux();
 
   double el = surfaceDetail[0]; // elasticity (coefficient of restitution)
   v::DVec<3> lhs = -el * ureln * normal - urel;
-  double mi = api.massi + bpi.massi;
-  v::DVec<3> r1 = pos - api.pose.p;
+  double mi = api.pi.massi + bpi.pi.massi;
+  v::DVec<3> r1 = pos - api.pi.pose.p;
   DMat3x3 rcr1 = crossMat(r1);
-  v::DVec<3> r2 = pos - bpi.pose.p;
+  v::DVec<3> r2 = pos - bpi.pi.pose.p;
   DMat3x3 rcr2 = crossMat(r2);
-  DMat3x3 kt = diagMat(mi, mi, mi) + rcr1.transpose() * aaux.riner * rcr1 +
-               rcr2.transpose() * baux.riner * rcr2;
+  DMat3x3 kt = diagMat(mi, mi, mi) + rcr1.transpose() * api.aux.riner * rcr1 +
+               rcr2.transpose() * bpi.aux.riner * rcr2;
   v::DVec<3> imp = kt.solve(lhs);
   double sf = surfaceDetail[1]; // static friction
   double jdn = v::dot(imp, normal);
@@ -49,14 +48,15 @@ bool doCollisionResponse(const Contact &con, PhysInfo &api, PhysInfo &bpi,
     imp = jdn * normal;
   }
   if (con.depth > 1e-2) {
+    // penalty, should never happen
     imp += 1e-3 * normal;
   }
-  api.lm += imp;
-  bpi.lm -= imp;
-  api.am += cross3(r1, imp);
-  bpi.am -= cross3(r2, imp);
-  aaux = api.getAuxInfo();
-  baux = bpi.getAuxInfo();
+  api.pi.lm += imp;
+  bpi.pi.m -= imp;
+  api.pi.am += cross3(r1, imp);
+  bpi.pi.am -= cross3(r2, imp);
+  api.updateAux();
+  bpi.updateAux();
   return true;
 }
 
@@ -85,12 +85,8 @@ bool doCollisionResponse(const Contact &con, PhysInfo &api, PhysInfo &bpi,
 */
 template <class Obj> class RotCCDSolver {
 
-  // XXX: cache physinfo/auxphysinfo
   std::vector<Obj> objs;
-  std::vector<CoalescedObj<Obj>> cobjs;
-  std::size_t cobjsSz = 0;
-  /// has same sz as objs, if nonnegative is index in cobjs
-  std::vector<int> trueObjs; // XXX: see if union-find does better
+  UnionFind coalesces;
 
   double g; // acceleration of gravity
 
@@ -111,56 +107,74 @@ template <class Obj> class RotCCDSolver {
     Contact c;
     int i, j;
   };
-  struct CollisionOrder {
-    bool operator()(const Collision &a, const Collision &b) const noexcept {
-      return a.c.t < b.c.t;
-    }
-  };
 
   // temporaries:
-  // same as trueObjs, but with the temporary coalescing
-  std::vector<int> tmpObjs;
-  std::set<Collision, CollisionOrder> cols; // collisions
+  std::unordered_map<int, CoalescedObj> cobjs;
+  // indices of objs to collisions, representing earliest-time collision
+  std::unordered_map<int, Collision> cols;
+  // same as coalesces, but with the temporary coalescing
+  UnionFind tmpCoalesces;
 
 public:
   RotCCDSolver(std::vector<Obj> &&objs, double g)
-      : objs(objs), g(g), bProvider{*this, 1. /*arbitrary*/},
-        broadPhase(bProvider) {}
+      : objs(objs), coalesces(objs.size()),
+        g(g), bProvider{*this, 1. /*arbitrary*/}, broadPhase(bProvider) {}
 
-  PhysInfo getBasePhysInfo(int i) const {
-    int oi = tmpObjs[i];
-    return oi < 0 ? objs[i].physInfo() : cobjs[oi].physInfo();
-  }
-  void setBasePhysInfo(int i, const PhysInfo &pi) const {
-    int oi = tmpObjs[i];
-    if (oi < 0) {
-      objs[i].setPhysInfo(pi);
-    } else {
-      cobjs[oi].setPhysInfo(pi);
-    }
+  /// for arbitrary i, call on tmpCoalesces.find(i)
+  CPhysInfo &basePhysInfo(int i) {
+    return tmpCoalesces.getSz(i) > 1 ? cpis[i] : objs[i];
   }
 
-  void checkCollision(double dt, int i, int j) {
-    if (!p[i].mass && !p[j].mass) {
+  /// this handles the possibility of collision between objs[i] and objs[j]
+  void checkCollision(double time, double dt, bool doC, int i, int j) {
+    int irep = tmpCoalesces.find(i);
+    int jrep = tmpCoalesces.find(j);
+    if (irep == jrep) {
+      // part of same coalesced object
       return;
     }
-    PhysInfo pi1 = getBasePhysInfo(i);
-    PhysInfo pi2 = getBasePhysInfo(j);
-    AuxPhysInfo pi1a = pi1.getAuxInfo();
-    AuxPhysInfo pi2a = pi2.getAuxInfo();
-    Contact c =
-        objs[i].doCCD(dt * pi1a.velo, dt * pi1a.omega, pi1.pose.p, objs[j],
-                      dt * pi2a.velo, dt * pi2a.omega, pi2.pose.p);
+    double idt = dt - time, jdt = dt - time;
+    CPhysInfo cpii, cpij;
+    if (tmpCoalesces.getSz(irep) > 1) {
+      auto it = cols.find(irep);
+      if (it != cols.end()) {
+        idt = it->c.t;
+      }
+      cpii = cobjs[irep].pi;
+    } else {
+      // well, i == irep anyways in this case...
+      cpii = objs[irep].pi;
+    }
+    if (!cpii.mass) {
+      return;
+    }
+    if (tmpCoalesces.getSz(jrep) > 1) {
+      auto it = cols.find(jrep);
+      if (it != cols.end()) {
+        jdt = it->c.t;
+      }
+      cpij = cobjs[jrep].pi;
+    } else {
+      cpij = objs[jrep].pi;
+    }
+    if (!cpij.mass) {
+      return;
+    }
+    dt = idt < jdt ? idt : jdt;
+    Contact c = objs[i].doCCD(dt * cpii.aux.velo, dt * cpii.aux.omega,
+                              cpii.pi.pose.p, objs[j], dt * cpij.aux.velo,
+                              dt * cpii.aux.omega, cpii.pi.pose.p);
+    // TODO: NEED TO CONSIDER WHETHER THE COLLISION IS LEAVING
     if (c.t > 1) {
       return;
     }
     c.t *= dt;
-    cols.insert({c, i, j});
+    cols[i] = {c, i, j};
+    cols[j] = {c, i, j};
   }
 
   /// returns true when no collisions
   bool processCollision(double &time) {
-    // since cols is std::set, this will start from the earliest collision
     for (auto iter = cols.cbegin(), iter_end = cols.cend(); iter != iter_end;
          ++iter) {
       const Collision &col = *iter;
