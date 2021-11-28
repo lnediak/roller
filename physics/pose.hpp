@@ -148,7 +148,10 @@ struct Pose {
   }
 };
 
+Pose combinePose(const Pose &base, const Pose &rel) {
+  return {base.toWorldCoords(rel.p), quaternionMult(base.q, rel.q)};
+}
+
 } // namespace roller
 
 #endif // ROLLER_PHYSICS_POSE_HPP_
-

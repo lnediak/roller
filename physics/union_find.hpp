@@ -1,54 +1,38 @@
 #ifndef ROLLER_UNION_FIND_HPP_
 #define ROLLER_UNION_FIND_HPP_
 
-#include <vector>
+namespace roller {
+/*
+  GetP is functor, int &getP(int i)
+  GetSz is functor, int &getSz(int i)
+*/
 
-class UnionFind {
-
-  struct Node {
-    int p;
-    int sz;
-  };
-  std::vector<Node> p;
-
-public:
-  UnionFind() {}
-  explicit UnionFind(std::size_t sz) : p(sz) {
-    for (std::size_t i = 0; i < sz; i++) {
-      p[i] = {i, 1};
-    }
+/// find representative index of the set i is in
+template <class GetP> int ufFind(int i, GetP &&getP) {
+  // path halving
+  while (getP(i) != i) {
+    i = getP(i) = getP(getP(i));
   }
-
-  /// find representative index of the set i is in
-  int find(int i) {
-    // path halving
-    while (p[i].p != i) {
-      i = p[i].p = p[p[i].p].p;
-    }
-    return i;
+  return i;
+}
+/// returns true if a union was performed
+template <class GetP, class GetSz>
+bool ufUnion(int i, int j, GetP &&getP, GetSz &&getSz) {
+  int pi = find(i, getP);
+  int pj = find(j, getP);
+  if (pi == pj) {
+    return false;
   }
-  /// returns true if a union was performed
-  bool merge(int i, int j) {
-    int pi = find(i);
-    int pj = find(j);
-    if (pi == pj) {
-      return false;
-    }
-    if (p[pi].sz < p[pj].sz) {
-      int tmp = pi;
-      pi = pj;
-      pj = tmp;
-    }
-    p[pj].p = pi;
-    p[pi].sz += p[pj].sz;
-    return true;
+  if (getSz(pi) < getSz(pj)) {
+    int tmp = pi;
+    pi = pj;
+    pj = tmp;
   }
+  getP(pj) = pi;
+  getSz(pi) += getSz(pj);
+  return true;
+}
 
-  /// to identify singletons, of course
-  int getWholeSz(int i) const { return p[find(i)].sz; }
-  /// if you already have the representative index for some reason
-  int getIndSz(int i) const { return p[i].sz; }
-};
+} // namespace roller
 
 #endif // ROLLER_UNION_FIND_HPP_
-

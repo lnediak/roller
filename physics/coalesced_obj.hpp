@@ -7,26 +7,26 @@
 
 namespace roller {
 
+/// df is the new center relative to the center of mass
+DMat3x3 adjustCenter(const DMat3x3 &iner, double mass, const v::DVec<3> &df) {
+  v::DVec<3> mm = mass * df;
+  double xx = mm[0] * df[0];
+  double xy = mm[0] * df[1];
+  double xz = mm[0] * df[2];
+  double yy = mm[1] * df[1];
+  double yz = mm[1] * df[2];
+  double zz = mm[2] * df[2];
+  DMat3x3 dblCrossMat = {
+      {yy + zz, -xy, -xz}, {-xy, xx + zz, -yz}, {-xz, -yz, xx + yy}};
+  return iner + dblCrossMat;
+}
+
 class CoalescedObj {
 
   std::vector<CPhysInfo *> objs;
   std::vector<Pose> poses;
 
   CPhysInfo cpi;
-
-  /// df is the new center relative to the center of mass
-  DMat3x3 adjustCenter(const DMat3x3 &iner, double mass, const v::DVec<3> &df) {
-    v::DVec<3> mm = mass * df;
-    double xx = mm[0] * df[0];
-    double xy = mm[0] * df[1];
-    double xz = mm[0] * df[2];
-    double yy = mm[1] * df[1];
-    double yz = mm[1] * df[2];
-    double zz = mm[2] * df[2];
-    DMat3x3 dblCrossMat = {
-        {yy + zz, -xy, -xz}, {-xy, xx + zz, -yz}, {-xz, -yz, xx + yy}};
-    return iner + dblCrossMat;
-  }
 
   /// evaluates and writes into pi and poses
   void evalPhysInfo() {

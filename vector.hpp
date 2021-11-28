@@ -257,6 +257,11 @@ typename A::value_type sum(const A &a) {
 }
 
 template <class A, class = typename rem_cvr<A>::thisisavvec>
+typename A::value_type product(const A &a) {
+  return Product<typename A::value_type, A::size, A>(a).evaluate();
+}
+
+template <class A, class = typename rem_cvr<A>::thisisavvec>
 typename A::value_type min(const A &a) {
   return Min<typename A::value_type, A::size, A>(a).evaluate();
 }
@@ -613,4 +618,3 @@ std::ostream &operator<<(std::ostream &os, const A &a) {
 }
 
 #endif // V_VECTOR_HPP_
-

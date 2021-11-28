@@ -1,206 +1,145 @@
 #ifndef ROLLER_PHYSICS_BROAD_PHASE_HPP_
 #define ROLLER_PHYSICS_BROAD_PHASE_HPP_
 
-#include <algorithm>
-#include <unordered_set>
-#include <vector>
+#include <priority_queue>
 
 #include "aabb.hpp"
+#include "pool.hpp"
 #include "util.hpp"
 
 namespace roller {
 
-/**
-  W template: Needs the follows
-  typedef ? iterator;  // just needs to support ++ and !=
-  typedef ? iter_hash; // a hash for iterator
-  typedef ? iter_eq;   // a equality functor for iterator
-  iterator begin() const ;
-  iterator end() const ;
-  AABB getAABB(iterator) const ;
-  Note: getAABB should be fast
-
-  IgnFun template (used in class body): Needs the follows
-  bool operator()(W::iterator a, W::iterator b) const;
-  which returns true if collision between a and b should be ignored
-*/
-template <class W> class BroadPhaseAABB {
-
-  W w; /// access point for AABBs
-  typedef rem_cvr<W> clnW;
-  typedef typename clnW::iterator Witer;
-  typedef typename clnW::iter_hash WiterHash;
-  typedef typename clnW::iter_eq WiterEq;
-
-  // AABB stuff
-  struct Entry {
-    Witer i;
-    bool b; // is this the max of the AABB along the axis in question?
+/// inspired by Bullet's b3DynamicBvh and Box2D's b2_dynamic_tree
+class BroadPhaseAABBTree {
+  struct Node {
+    AABB aabb;
+    int height;
+    int parent;
+    int child[2];
   };
-  std::vector<Entry> xsort, ysort, zsort;
-  /// pairs of intersecting AABBs
-  std::unordered_set<UnorderedPair<Witer>, UnorderedPairHash<Witer, WiterHash>,
-                     UnorderedPairEq<Witer, WiterEq>>
-      aabbInts;
+  /// root is 0
+  Pool<Node> p;
 
-  template <class IgnFun> void initAABBStuff(IgnFun &&ignFun) {
-    aabbInts.clear();
-    xsort.clear();
-    ysort.clear();
-    zsort.clear();
-    int nObjs = 0;
-    for (Witer it = w.begin(), ite = w.end(); it != ite; ++it) {
-      xsort.push_back({it, false});
-      ysort.push_back({it, false});
-      zsort.push_back({it, false});
-      xsort.push_back({it, true});
-      ysort.push_back({it, true});
-      zsort.push_back({it, true});
-      nObjs++;
-    }
-    if (!nObjs) {
-      return;
-    }
-    int xyz;
-    auto cmp = [this, &xyz](const Entry &a, const Entry &b) -> bool {
-      return w.getAABB(a.i).m[a.b][xyz] < w.getAABB(b.i).m[b.b][xyz];
-    };
-    // sort...
-    xyz = 0;
-    std::sort(xsort.begin(), xsort.end(), cmp);
-    xyz = 1;
-    std::sort(ysort.begin(), ysort.end(), cmp);
-    xyz = 2;
-    std::sort(zsort.begin(), zsort.end(), cmp);
-    // and sweep! (not most efficient lol)
-    std::size_t bloat = 3 * nObjs / 2;
-    decltype(aabbInts) tmpx(bloat), tmpy(bloat);
-    aabbInts.reserve(bloat);
-    std::unordered_set<Witer, WiterHash, WiterEq> active(bloat);
-    for (const Entry &e : xsort) {
-      if (e.b) {
-        active.erase(e.i); // note: assuming no degenerate AABBs
+  /// this heuristic is from b3DynamicBvh
+  double proximity(const AABB &a, const AABB &b) const {
+    return v::sum(v::vabs((a.m[0] + a.m[1]) - (b.m[0] + b.m[1])));
+  }
+
+  static int imax(int a, int b) { return a > b ? a : b; }
+  void writeAABB(int node) {
+    p[node].aabb = p[p[node].left].aabb.combine(p[p[node].right].aabb);
+  }
+  /// does not fix the AABBs in the path to highest subtree; helper for insert
+  void balance(int node) {
+    Node &n = p[node];
+    int nl = n.left;
+    int nr = n.right;
+    int hdf = p[nl].height - p[nr].height;
+    // "Dynamic AABB Trees - GDC 2019"
+    if (hdf >= 2) {
+      int nll = p[nl].left;
+      int nlr = p[nl].right;
+      if (p[nll].height > p[nlr].height) {
+        // swap nll with nr
+        n.right = nll;
+        p[nll].parent = node;
+        p[nl].left = nr;
+        p[nr].parent = nl;
+        p[nl].height--;
+        writeAABB(nl);
       } else {
-        for (const Witer &fi : active) {
-          tmpx.insert({e.i, fi});
-        }
-        active.insert(e.i);
+        // swap nlr with nr
+        n.right = nlr;
+        p[nlr].parent = node;
+        p[nl].right = nr;
+        p[nr].parent = nl;
+        p[nl].height--;
+        writeAABB(nl);
+      }
+    } else if (hdf <= 2) {
+      int nrl = p[nr].left;
+      int nrr = p[nr].right;
+      if (p[nrl].height > p[nrr].height) {
+        // swap nrl with nl
+        n.left = nrl;
+        p[nrl].parent = node;
+        p[nr].left = nl;
+        p[nl].parent = nr;
+        p[nr].height--;
+        writeAABB(nr);
+      } else {
+        // swap nrr with nl
+        n.left = nrr;
+        p[nrr].parent = node;
+        p[nr].right = nl;
+        p[nl].parent = nr;
+        p[nr].height--;
+        writeAABB(nr);
       }
     }
-    // active should be empty right now
-    for (const Entry &e : ysort) {
-      if (e.b) {
-        active.erase(e.i);
-      } else {
-        for (const Witer &fi : active) {
-          if (tmpx.count({e.i, fi})) {
-            tmpy.insert({e.i, fi});
-          }
-        }
-        active.insert(e.i);
-      }
+    n.height = imax(p[n.left].height, p[n.right].height) + 1;
+  }
+
+  /// helper for insert
+  bool properifyAABB(int node, const AABB &aabb) {
+    if (p[node].aabb.contains(aabb)) {
+      return false;
     }
-    for (const Entry &e : zsort) {
-      if (e.b) {
-        active.erase(e.i);
-      } else {
-        for (const Witer &fi : active) {
-          if (!ignFun(e.i, fi) && tmpy.count({e.i, fi})) {
-            aabbInts.insert({e.i, fi});
-          }
-        }
-        active.insert(e.i);
-      }
-    }
+    p[node].aabb = p[node].aabb.combine(aabb);
+    return true;
   }
 
 public:
-  struct IgnNoOp {
-    bool operator()(Witer, Witer) const { return false; }
-  };
-  BroadPhaseAABB(W &&w) : w(w) { initAABBStuff(IgnNoOp()); }
-  template <class IgnFun = IgnNoOp &&>
-  BroadPhaseAABB(W &&w, IgnFun &&ignFun = IgnNoOp()) : w(w) {
-    initAABBStuff(std::forward<IgnFun>(ignFun));
+  BroadPhaseAABBTree() {
+    p.mkNew(); // should return 0
+    p[0].height = -1;
+    p[0].parent = 0;
+    p[0].child[0] = 0;
+    p[0].child[1] = 0;
   }
 
-private:
-  template <class IgnFun, class Fun>
-  void updateAABBStuff0(std::vector<Entry> &dsort, std::size_t d,
-                        IgnFun &&ignFun, Fun &&callback) {
-    if (dsort.empty()) {
+  void insert(const AABB &aabb) {
+    // empty tree
+    if (p[0].height < 0) {
+      p[0] = {aabb, 0, 0, {0, 0}};
       return;
     }
-    Entry rpe = dsort[0]; // real previous entry
-    double rp = w.getAABB(rpe.i).m[rpe.b][d];
-    // insertion sort
-    for (std::size_t ind = 1, sz = dsort.size(); ind < sz; ind++) {
-      std::size_t cind = ind;
-      Entry tce = dsort[cind]; // temporary current entry
-      Entry tpe = rpe;         // temporary previous entry
-      double tc = w.getAABB(tce.i).m[tce.b][d];
-      double tp = rp;
-      if (tp <= tc) {
-        rpe = tce;
-        rp = tc;
-        continue;
+    int sibling = 0;
+    int lastStep = 0;
+    while (p[sibling].height > 0) {
+      sibling =
+          p[sibling]
+              .child[lastStep = (proximity(aabb, p[sibling].child[1].aabb) >
+                                 proximity(aabb, p[sibling].child[0].aabb))];
+    }
+    int gpar = p[sibling].parent;
+    int parent = p.mkNew();
+    if (sibling) {
+      p[gpar].child[lastStep] = parent;
+    } else {
+      sibling = parent;
+      parent = 0;
+      p[sibling] = p[0];
+    }
+    int leaf = p.mkNew();
+    p[leaf] = {aabb, 0, parent, {0, 0}};
+    p[sibling].parent = parent;
+    p[parent].aabb = aabb.combine(p[sibling].aabb);
+    p[parent].height = 1;
+    p[parent] = gpar;
+    p[parent].child[0] = sibling;
+    p[parent].child[1] = leaf;
+    int node = parent;
+    while (node) {
+      node = p[node].parent;
+      balance(node);
+    }
+    node = parent;
+    while (node) {
+      node = p[node].parent;
+      if (!properifyAABB(node, aabb)) {
+        break;
       }
-      rpe = tpe;
-      rp = tp;
-
-      do {
-        dsort[cind] = tpe;
-        dsort[--cind] = tce;
-        if (tpe.b != tce.b && !ignFun(tpe.i, tce.i)) {
-          if (w.getAABB(tpe.i).intersects(w.getAABB(tce.i))) {
-            if (aabbInts.insert({tpe.i, tce.i}).second) {
-              callback(tpe.i, tce.i, true);
-            }
-          } else {
-            if (aabbInts.erase({tpe.i, tce.i})) {
-              callback(tpe.i, tce.i, false);
-            }
-          }
-        }
-        if (!cind) {
-          break;
-        }
-        tpe = dsort[cind - 1];
-        tp = w.getAABB(tpe.i).m[tpe.b][d];
-      } while (tp > tc);
-    }
-  }
-
-public:
-  struct NoOp {
-    void operator()(Witer, Witer, bool) const {}
-  };
-  /// TODO: callback doesn't work if changedW
-  /*
-    changedW: refers to whether w.begin() through w.end() have changed
-    callback: calls callback(a, b, isAdd), where isAdd is true if {a, b} is a
-    new collision, and false if {a, b} is now not a collision
-  */
-  template <class IgnFun = IgnNoOp &&, class Fun = NoOp &&>
-  void updateAABBStuff(IgnFun &&ignFun = IgnNoOp(), bool changedW = true,
-                       Fun &&callback = NoOp()) {
-    if (changedW) {
-      // TODO: do a faster incremental update
-      initAABBStuff(std::forward<IgnFun>(ignFun));
-      return;
-    }
-    updateAABBStuff0(xsort, 0, std::forward<IgnFun>(ignFun),
-                     std::forward<Fun>(callback));
-    updateAABBStuff0(ysort, 1, std::forward<IgnFun>(ignFun),
-                     std::forward<Fun>(callback));
-    updateAABBStuff0(zsort, 2, std::forward<IgnFun>(ignFun),
-                     std::forward<Fun>(callback));
-  }
-
-  /// calls fun(i, j) for all i,j indices of intersecting object AABBs
-  template <class Fun> void exportInts(Fun &&fun) {
-    for (auto &pair : aabbInts) {
-      fun(pair.a, pair.b);
     }
   }
 };
