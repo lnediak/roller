@@ -32,6 +32,10 @@ class BroadPhaseAABBTree {
     p[node].aabb = p[p[node].child[0]].aabb.combine(p[p[node].child[1]].aabb);
   }
   static int imax(int a, int b) { return a > b ? a : b; }
+  void writeHeight(int node) {
+    p[node].height =
+        imax(p[p[node].child[0]].height, p[p[node].child[1]].height) + 1;
+  }
   /// does not fix the AABBs in the path to highest subtree; helper for insert
   void balance(int node) {
     Node &n = p[node];
@@ -48,18 +52,18 @@ class BroadPhaseAABBTree {
         p[nll].parent = node;
         p[nl].child[0] = nr;
         p[nr].parent = nl;
-        p[nl].height--;
         writeAABB(nl);
+        writeHeight(nl);
       } else {
         // swap nlr with nr
         n.child[1] = nlr;
         p[nlr].parent = node;
         p[nl].child[1] = nr;
         p[nr].parent = nl;
-        p[nl].height--;
         writeAABB(nl);
+        writeHeight(nl);
       }
-    } else if (hdf <= 2) {
+    } else if (hdf <= -2) {
       int nrl = p[nr].child[0];
       int nrr = p[nr].child[1];
       if (p[nrl].height > p[nrr].height) {
@@ -68,19 +72,19 @@ class BroadPhaseAABBTree {
         p[nrl].parent = node;
         p[nr].child[0] = nl;
         p[nl].parent = nr;
-        p[nr].height--;
         writeAABB(nr);
+        writeHeight(nr);
       } else {
         // swap nrr with nl
         n.child[0] = nrr;
         p[nrr].parent = node;
         p[nr].child[1] = nl;
         p[nl].parent = nr;
-        p[nr].height--;
         writeAABB(nr);
+        writeHeight(nr);
       }
     }
-    n.height = imax(p[n.child[0]].height, p[n.child[1]].height) + 1;
+    writeHeight(node);
   }
 
   /// helper for insert
@@ -104,12 +108,6 @@ public:
     int sibling = root;
     int lastStep = 0;
     while (p[sibling].height > 0) {
-      /*
-      std::cout << sibling << std::endl;
-      std::cout << "children: " << p[sibling].child[0] << " "
-                << p[sibling].child[1] << std::endl;
-      std::cout << "height: " << p[sibling].height << std::endl;
-      */
       sibling =
           p[sibling]
               .child[lastStep = (proximity(aabb, p[p[sibling].child[1]].aabb) >
@@ -134,7 +132,7 @@ public:
     int node = parent;
     while (node != root) {
       node = p[node].parent;
-      // TODO: add back and debug balance(node);
+      balance(node);
     }
     node = parent;
     while (node != root) {
@@ -169,6 +167,11 @@ public:
       }
       p[sibling].parent = gpar;
       int node = sibling;
+      while (node != root) {
+        node = p[node].parent;
+        balance(node);
+      }
+      node = sibling;
       while (node != root) {
         node = p[node].parent;
         writeAABB(node);
@@ -234,7 +237,7 @@ public:
   }
 
   /// returns false if it finds anything wrong with the structure
-  bool testStructure() const {
+  bool testStructure(int printTree = 0) const {
     if (root < 0) {
       return true;
     }
@@ -244,45 +247,53 @@ public:
     };
     std::vector<Entry> stack;
     stack.push_back({root, 0});
+    bool fail = true;
     while (stack.size()) {
       Entry e = stack.back();
       stack.pop_back();
       int node = e.node;
-      /*
-      std::cout << std::string(e.indent, ' ') << node << "," << p[node].primi
-                << std::endl;
-      p[node].aabb.print();
-      */
+      if (printTree) {
+        std::cout << std::string(e.indent, ' ') << node << "," << p[node].primi
+                  << "," << p[node].height << std::endl;
+        if (printTree > 1) {
+          p[node].aabb.print();
+        }
+      }
       if (inds.count(node)) {
+        std::cout << node << std::endl;
         std::cout << "cyclic" << std::endl;
-        return false;
+        fail = false;
       }
       if (p[node].primi >= 0) {
         if (p[node].height) {
+          std::cout << node << std::endl;
           std::cout << "leaf has height" << std::endl;
-          return false;
+          fail = false;
         }
         continue;
       }
       int nl = p[node].child[0];
       int nr = p[node].child[1];
       if (p[node].height != imax(p[nl].height, p[nr].height) + 1) {
-        // std::cout << "height incorrect" << std::endl;
-        // return false;
+        std::cout << node << std::endl;
+        std::cout << "height incorrect" << std::endl;
+        fail = false;
       }
       if (p[nl].parent != node || p[nr].parent != node) {
+        std::cout << node << std::endl;
         std::cout << "parent incorrect" << std::endl;
-        return false;
+        fail = false;
       }
       if (!p[node].aabb.contains(p[nl].aabb) ||
           !p[node].aabb.contains(p[nr].aabb)) {
+        std::cout << node << std::endl;
         std::cout << "aabb not bounding" << std::endl;
-        return false;
+        fail = false;
       }
       stack.push_back({nl, e.indent + 8});
       stack.push_back({nr, e.indent + 8});
     }
-    return true;
+    return fail;
   }
 };
 

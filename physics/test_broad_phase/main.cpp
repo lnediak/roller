@@ -247,4 +247,4 @@ int testBroadPhaseAABB(int numIters, int numWats, int numSubIters) {
   return 0;
 }
 
-int main() { testBroadPhaseAABB(10, 10, 10); }
+int main() { testBroadPhaseAABB(30, 10, 10); }
