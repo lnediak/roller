@@ -1,4 +1,4 @@
-#include <forward_list>
+#include <functional>
 #include <iostream>
 #include <random>
 
@@ -7,29 +7,76 @@
 // I'm lazy lol
 using namespace roller;
 
-template <class Iter> struct EzIterHash {
-  std::hash<const typename std::iterator_traits<Iter>::value_type *> base;
-  std::size_t operator()(Iter iter) const noexcept { return base(&*iter); }
-};
 struct EasyW {
-  std::forward_list<AABB> d;
-  typedef decltype(d.cbegin()) iterator;
-  typedef EzIterHash<iterator> iter_hash;
+  struct Entry {
+    AABB aabb;
+    int leafi;
+    int next;
+  };
+  /// 0 is head, aabb meaningless
+  Pool<Entry> d;
+
+  EasyW() : d(256) {
+    d.mkNew();
+    d[0].next = 0;
+  }
+
+  struct LazyIter {
+    typedef Entry value_type;
+    Pool<Entry> *d;
+    int i;
+    value_type &operator*() { return (*d)[i]; }
+    const value_type &operator*() const { return (*d)[i]; }
+    value_type *operator->() { return &(*d)[i]; }
+    const value_type *operator->() const { return &(*d)[i]; }
+    bool operator==(const LazyIter &o) const noexcept { return i == o.i; }
+    bool operator!=(const LazyIter &o) const noexcept { return !operator==(o); }
+    LazyIter &operator++() {
+      i = (*d)[i].next;
+      return *this;
+    }
+    LazyIter operator++(int) {
+      LazyIter toret = *this;
+      operator++();
+      return toret;
+    }
+  };
+  struct LazyIterHash {
+    std::size_t operator()(const LazyIter &o) const noexcept { return o.i; }
+  };
+  typedef LazyIter iterator;
+  typedef LazyIterHash iter_hash;
   typedef std::equal_to<iterator> iter_eq;
 
-  iterator begin() const { return d.begin(); }
-  iterator end() const { return d.end(); }
-  AABB getAABB(iterator iter) const { return *iter; }
+  iterator atInd(int i) { return {&d, i}; }
+  iterator begin() { return atInd(d[0].next); }
+  iterator end() { return atInd(0); }
+  iterator before_begin() { return end(); }
+  iterator insert_after(iterator iter, const AABB &value, int leafi) {
+    int newn = d.mkNew();
+    d[newn].aabb = value;
+    d[newn].leafi = leafi;
+    d[newn].next = iter->next;
+    iter->next = newn;
+    return {&d, newn};
+  }
+  iterator push_front(const AABB &value, int leafi) {
+    return insert_after(before_begin(), value, leafi);
+  }
+  iterator erase_after(iterator iter) {
+    iter->next = d[iter->next].next;
+    return ++iter;
+  }
 };
 
 /// brute force AABB broad phase
-template <class Fun, class IgnFun>
+template <class Fun>
 void primitiveBroadPhase(EasyW::iterator iter, EasyW::iterator iter_end,
-                         IgnFun &&ignFun, Fun &&callback) {
+                         Fun &&callback) {
   for (auto ii = iter; ii != iter_end; ++ii) {
     auto jj = ii;
     for (++jj; jj != iter_end; ++jj) {
-      if (ii->intersects(*jj) && !ignFun(ii, jj)) {
+      if (ii->aabb.intersects(jj->aabb)) {
         callback(ii, jj);
       }
     }
@@ -46,14 +93,10 @@ AABB randAABB(std::mt19937 &mtrand, std::uniform_real_distribution<> &rdistro,
   return aabb;
 }
 
-void printAABB(AABB a) {
-  std::cout << "min: " << a.m[0] << std::endl;
-  std::cout << "max: " << a.m[1] << std::endl;
-}
 template <class Witer> void printUPairWiter(UnorderedPair<Witer> up) {
-  std::cout << "unordered pair:" << std::endl;
-  printAABB(*up.a);
-  printAABB(*up.b);
+  std::cout << "unordered pair: " << up.a.i << " " << up.b.i << std::endl;
+  up.a->aabb.print();
+  up.b->aabb.print();
 }
 
 /// massively slow equality comparison between two unordered_sets that doesn't
@@ -82,6 +125,19 @@ bool unorderedSetEq(const std::unordered_set<Key, KeyHash, KeyEq> &a,
   }
   return true;
 }
+/// determines if each element in a is also in b
+template <class Key, class KeyHash, class KeyEq>
+bool uSetSubsetOf(const std::unordered_set<Key, KeyHash, KeyEq> &a,
+                  const std::unordered_set<Key, KeyHash, KeyEq> &b) {
+  for (auto &e : a) {
+    if (a.count(e) != b.count(e)) {
+      std::cout << "found element in a, not in b" << std::endl;
+      printUPairWiter(e);
+      return false;
+    }
+  }
+  return true;
+}
 
 int reluI(int a) { return a < 0 ? 0 : a; }
 
@@ -90,6 +146,7 @@ int testBroadPhaseAABB(int numIters, int numWats, int numSubIters) {
   std::uniform_real_distribution<> rdistro(-100, 100);
   std::uniform_real_distribution<> pdistro(0.1, 100);
   std::uniform_int_distribution<> ldistro(-50, 200);
+  // std::uniform_int_distribution<> ldistro(-5, 20);
   std::uniform_int_distribution<> goofy(0, 10);
 
   for (int spam = 0; spam < numIters; spam++) {
@@ -98,17 +155,10 @@ int testBroadPhaseAABB(int numIters, int numWats, int numSubIters) {
     }
     EasyW w;
     std::size_t nObjs = 0;
-    BroadPhaseAABB<EasyW &> broadPhase(w);
+    BroadPhaseAABBTree broadPhase;
     typedef EasyW::iterator Witer;
-    std::unordered_set<UnorderedPair<Witer>,
-                       UnorderedPairHash<Witer, EasyW::iter_hash>,
-                       UnorderedPairEq<Witer, EasyW::iter_eq>>
-        ignoreList;
-    auto ignFun = [&ignoreList](Witer a, Witer b) -> bool {
-      return ignoreList.count({a, b});
-    };
     for (int wat = 0; wat < numWats; wat++) {
-      for (auto iter = w.d.before_begin(), iter_end = w.d.end();
+      for (auto iter = w.before_begin(), iter_end = w.end();
            iter != iter_end;) {
         if (goofy(mtrand)) {
           ++iter;
@@ -117,85 +167,73 @@ int testBroadPhaseAABB(int numIters, int numWats, int numSubIters) {
           if (iter == iter_end) {
             break;
           }
-          for (auto it = ignoreList.begin(), it_e = ignoreList.end();
-               it != it_e; ++it) {
-            if (it->a == iter || it->b == iter) {
-              ignoreList.erase(it);
-              break;
-            }
-          }
-          iter = w.d.erase_after(tmp);
+          broadPhase.remove(iter->leafi);
+          iter = w.erase_after(tmp);
           nObjs--;
         }
       }
       for (int ii = 0, sz = reluI(ldistro(mtrand)); ii < sz; ii++) {
-        w.d.push_front(randAABB(mtrand, rdistro, pdistro));
-        if (nObjs && !goofy(mtrand)) {
-          std::uniform_int_distribution<> veryGoofy(1, nObjs);
-          std::size_t otherI = veryGoofy(mtrand);
-          Witer otherIt = w.begin();
-          for (std::size_t jj = 0; jj < otherI; jj++) {
-            ++otherIt;
-          }
-          ignoreList.insert({w.begin(), otherIt});
-        }
+        AABB aabb = randAABB(mtrand, rdistro, pdistro);
+        auto iter = w.push_front(aabb, 0);
+        iter->leafi = broadPhase.insert(iter.i, aabb);
         nObjs++;
       }
-      // TODO: update when callback works with changedW
-      broadPhase.updateAABBStuff(ignFun);
-      decltype(ignoreList) reported, adjusted, bruteForced;
-      broadPhase.exportInts([&adjusted](Witer a, Witer b) -> void {
-        adjusted.insert({a, b});
+      if (!broadPhase.testStructure()) {
+        std::cout << "broadPhase tree invalid" << std::endl;
+        return 1;
+      }
+      std::unordered_set<UnorderedPair<Witer>,
+                         UnorderedPairHash<Witer, EasyW::iter_hash>,
+                         UnorderedPairEq<Witer, EasyW::iter_eq>>
+          reported, bruteForced;
+      broadPhase.exportInts([&w, &reported](int a, int b) -> void {
+        reported.insert({w.atInd(a), w.atInd(b)});
       });
-      primitiveBroadPhase(w.begin(), w.end(), ignFun,
+      primitiveBroadPhase(w.begin(), w.end(),
                           [&bruteForced](Witer a, Witer b) -> void {
                             bruteForced.insert({a, b});
                           });
-      if (!unorderedSetEq(adjusted, bruteForced)) {
+      if (!wat && !unorderedSetEq(reported, bruteForced)) {
         std::cout << "initial report did not match bruteForced" << std::endl;
         std::cout << "This was iteration #" << spam << ", wat #" << wat
                   << std::endl;
         return 1;
       }
+      if (!uSetSubsetOf(bruteForced, reported)) {
+        std::cout << "bruteForced not subset of reported" << std::endl;
+        std::cout << "This was iteration #" << spam << ", wat #" << wat
+                  << std::endl;
+        return 1;
+      }
       for (int spam2 = 0; spam2 < numSubIters; spam2++) {
-        for (auto iter = w.d.begin(), iter_end = w.d.end(); iter != iter_end;
+        if (!broadPhase.testStructure()) {
+          std::cout << "broadPhase tree invalid" << std::endl;
+        }
+        for (auto iter = w.begin(), iter_end = w.end(); iter != iter_end;
              ++iter) {
           if (!goofy(mtrand)) {
-            // normally the changes are going to be much more coherent than this
-            *iter = randAABB(mtrand, rdistro, pdistro);
+            iter->aabb = randAABB(mtrand, rdistro, pdistro);
+            iter->leafi = broadPhase.update(
+                iter->leafi, iter->aabb,
+                [](const AABB &aabb) -> AABB { return aabb; });
           }
         }
         bool fail = false;
-        broadPhase.updateAABBStuff(
-            ignFun, false,
-            [&adjusted, &fail](Witer a, Witer b, bool isAdd) -> void {
-              if (isAdd) {
-                if (!adjusted.insert({a, b}).second) {
-                  std::cout << "adjusted already contained {a, b}" << std::endl;
-                  fail = true;
-                }
-              } else {
-                if (!adjusted.erase({a, b})) {
-                  std::cout << "adjusted did not contain {a, b}" << std::endl;
-                  fail = true;
-                }
-              }
-            });
+        if (!broadPhase.testStructure()) {
+          std::cout << "broadPhase tree invalid" << std::endl;
+          fail = true;
+        }
         reported.clear();
-        broadPhase.exportInts([&reported](Witer a, Witer b) -> void {
-          reported.insert({a, b});
+        broadPhase.exportInts([&w, &reported](int a, int b) -> void {
+          reported.insert({w.atInd(a), w.atInd(b)});
         });
         bruteForced.clear();
-        primitiveBroadPhase(w.begin(), w.end(), ignFun,
+        primitiveBroadPhase(w.begin(), w.end(),
                             [&bruteForced](Witer a, Witer b) -> void {
                               bruteForced.insert({a, b});
                             });
-        if (!unorderedSetEq(reported, bruteForced)) {
-          std::cout << "reported did not match bruteForced" << std::endl;
-          fail = true;
-        }
-        if (!unorderedSetEq(reported, adjusted)) {
-          std::cout << "reported did not match adjusted" << std::endl;
+        if (!uSetSubsetOf(bruteForced, reported)) {
+          std::cout << "bruteForced not subset of reported" << std::endl;
           fail = true;
         }
         if (fail) {

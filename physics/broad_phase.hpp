@@ -1,7 +1,9 @@
 #ifndef ROLLER_PHYSICS_BROAD_PHASE_HPP_
 #define ROLLER_PHYSICS_BROAD_PHASE_HPP_
 
-#include <priority_queue>
+#include <queue>
+#include <unordered_set>
+#include <vector>
 
 #include "aabb.hpp"
 #include "pool.hpp"
@@ -11,73 +13,74 @@ namespace roller {
 
 /// inspired by Bullet's b3DynamicBvh and Box2D's b2_dynamic_tree
 class BroadPhaseAABBTree {
+
   struct Node {
     AABB aabb;
+    int primi; /// index of the primitive this is AABB around
     int height;
     int parent;
     int child[2];
   };
-  /// root is 0
   Pool<Node> p;
+  int root = -1;
 
   /// this heuristic is from b3DynamicBvh
   double proximity(const AABB &a, const AABB &b) const {
     return v::sum(v::vabs((a.m[0] + a.m[1]) - (b.m[0] + b.m[1])));
   }
-
-  static int imax(int a, int b) { return a > b ? a : b; }
   void writeAABB(int node) {
-    p[node].aabb = p[p[node].left].aabb.combine(p[p[node].right].aabb);
+    p[node].aabb = p[p[node].child[0]].aabb.combine(p[p[node].child[1]].aabb);
   }
+  static int imax(int a, int b) { return a > b ? a : b; }
   /// does not fix the AABBs in the path to highest subtree; helper for insert
   void balance(int node) {
     Node &n = p[node];
-    int nl = n.left;
-    int nr = n.right;
+    int nl = n.child[0];
+    int nr = n.child[1];
     int hdf = p[nl].height - p[nr].height;
     // "Dynamic AABB Trees - GDC 2019"
     if (hdf >= 2) {
-      int nll = p[nl].left;
-      int nlr = p[nl].right;
+      int nll = p[nl].child[0];
+      int nlr = p[nl].child[1];
       if (p[nll].height > p[nlr].height) {
         // swap nll with nr
-        n.right = nll;
+        n.child[1] = nll;
         p[nll].parent = node;
-        p[nl].left = nr;
+        p[nl].child[0] = nr;
         p[nr].parent = nl;
         p[nl].height--;
         writeAABB(nl);
       } else {
         // swap nlr with nr
-        n.right = nlr;
+        n.child[1] = nlr;
         p[nlr].parent = node;
-        p[nl].right = nr;
+        p[nl].child[1] = nr;
         p[nr].parent = nl;
         p[nl].height--;
         writeAABB(nl);
       }
     } else if (hdf <= 2) {
-      int nrl = p[nr].left;
-      int nrr = p[nr].right;
+      int nrl = p[nr].child[0];
+      int nrr = p[nr].child[1];
       if (p[nrl].height > p[nrr].height) {
         // swap nrl with nl
-        n.left = nrl;
+        n.child[0] = nrl;
         p[nrl].parent = node;
-        p[nr].left = nl;
+        p[nr].child[0] = nl;
         p[nl].parent = nr;
         p[nr].height--;
         writeAABB(nr);
       } else {
         // swap nrr with nl
-        n.left = nrr;
+        n.child[0] = nrr;
         p[nrr].parent = node;
-        p[nr].right = nl;
+        p[nr].child[1] = nl;
         p[nl].parent = nr;
         p[nr].height--;
         writeAABB(nr);
       }
     }
-    n.height = imax(p[n.left].height, p[n.right].height) + 1;
+    n.height = imax(p[n.child[0]].height, p[n.child[1]].height) + 1;
   }
 
   /// helper for insert
@@ -90,57 +93,196 @@ class BroadPhaseAABBTree {
   }
 
 public:
-  BroadPhaseAABBTree() {
-    p.mkNew(); // should return 0
-    p[0].height = -1;
-    p[0].parent = 0;
-    p[0].child[0] = 0;
-    p[0].child[1] = 0;
-  }
-
-  void insert(const AABB &aabb) {
+  /// returns node index
+  int insert(int primi, const AABB &aabb) {
     // empty tree
-    if (p[0].height < 0) {
-      p[0] = {aabb, 0, 0, {0, 0}};
-      return;
+    if (root < 0) {
+      root = p.mkNew();
+      p[root] = {aabb, primi, 0, root, {0, 0}};
+      return root;
     }
-    int sibling = 0;
+    int sibling = root;
     int lastStep = 0;
     while (p[sibling].height > 0) {
+      /*
+      std::cout << sibling << std::endl;
+      std::cout << "children: " << p[sibling].child[0] << " "
+                << p[sibling].child[1] << std::endl;
+      std::cout << "height: " << p[sibling].height << std::endl;
+      */
       sibling =
           p[sibling]
-              .child[lastStep = (proximity(aabb, p[sibling].child[1].aabb) >
-                                 proximity(aabb, p[sibling].child[0].aabb))];
+              .child[lastStep = (proximity(aabb, p[p[sibling].child[1]].aabb) >
+                                 proximity(aabb, p[p[sibling].child[0]].aabb))];
     }
     int gpar = p[sibling].parent;
     int parent = p.mkNew();
-    if (sibling) {
+    if (sibling != root) {
       p[gpar].child[lastStep] = parent;
     } else {
-      sibling = parent;
-      parent = 0;
-      p[sibling] = p[0];
+      root = parent;
     }
     int leaf = p.mkNew();
-    p[leaf] = {aabb, 0, parent, {0, 0}};
+    p[leaf] = {aabb, primi, 0, parent, {0, 0}};
     p[sibling].parent = parent;
     p[parent].aabb = aabb.combine(p[sibling].aabb);
+    p[parent].primi = -1;
     p[parent].height = 1;
-    p[parent] = gpar;
+    p[parent].parent = gpar;
     p[parent].child[0] = sibling;
     p[parent].child[1] = leaf;
     int node = parent;
-    while (node) {
+    while (node != root) {
       node = p[node].parent;
-      balance(node);
+      // TODO: add back and debug balance(node);
     }
     node = parent;
-    while (node) {
+    while (node != root) {
       node = p[node].parent;
       if (!properifyAABB(node, aabb)) {
         break;
       }
     }
+    return leaf;
+  }
+
+  void remove(int leaf) {
+    int parent = p[leaf].parent;
+    p.rem(leaf);
+    if (leaf == root) {
+      root = -1;
+      return;
+    }
+    int sibling;
+    if (leaf == p[parent].child[0]) {
+      sibling = p[parent].child[1];
+    } else {
+      sibling = p[parent].child[0];
+    }
+    int gpar = p[parent].parent;
+    p.rem(parent);
+    if (parent != root) {
+      if (parent == p[gpar].child[0]) {
+        p[gpar].child[0] = sibling;
+      } else {
+        p[gpar].child[1] = sibling;
+      }
+      p[sibling].parent = gpar;
+      int node = sibling;
+      while (node != root) {
+        node = p[node].parent;
+        writeAABB(node);
+      }
+    } else {
+      root = sibling;
+    }
+  }
+
+  template <class Fun> int update(int leaf, const AABB &aabb, Fun &&fun) {
+    if (p[leaf].aabb.contains(aabb)) {
+      return leaf;
+    }
+    int primi = p[leaf].primi;
+    remove(leaf);
+    return insert(primi, fun(aabb));
+  }
+
+  /// calls fun(a, b) where a,b are primi of intersecting nodes
+  template <class Fun> void exportInts(Fun &&fun) {
+    if (root < 0) {
+      return;
+    }
+    struct Entry {
+      int a, b;
+    };
+    std::vector<Entry> stack;
+    stack.push_back({root, root});
+    while (stack.size()) {
+      Entry e = stack.back();
+      stack.pop_back();
+      if (e.a == e.b) {
+        if (p[e.a].primi >= 0) {
+          continue;
+        }
+        stack.push_back({p[e.a].child[0], p[e.a].child[0]});
+        stack.push_back({p[e.a].child[0], p[e.a].child[1]});
+        stack.push_back({p[e.a].child[1], p[e.a].child[1]});
+      } else {
+        if (!p[e.a].aabb.intersects(p[e.b].aabb)) {
+          continue;
+        }
+        if (p[e.a].primi >= 0) {
+          if (p[e.b].primi >= 0) {
+            fun(p[e.a].primi, p[e.b].primi);
+          } else {
+            stack.push_back({e.a, p[e.b].child[0]});
+            stack.push_back({e.a, p[e.b].child[1]});
+          }
+        } else {
+          if (p[e.b].primi >= 0) {
+            stack.push_back({p[e.a].child[0], e.b});
+            stack.push_back({p[e.a].child[1], e.b});
+          } else {
+            stack.push_back({p[e.a].child[0], p[e.b].child[0]});
+            stack.push_back({p[e.a].child[0], p[e.b].child[1]});
+            stack.push_back({p[e.a].child[1], p[e.b].child[0]});
+            stack.push_back({p[e.a].child[1], p[e.b].child[1]});
+          }
+        }
+      }
+    }
+  }
+
+  /// returns false if it finds anything wrong with the structure
+  bool testStructure() const {
+    if (root < 0) {
+      return true;
+    }
+    std::unordered_set<int> inds;
+    struct Entry {
+      int node, indent;
+    };
+    std::vector<Entry> stack;
+    stack.push_back({root, 0});
+    while (stack.size()) {
+      Entry e = stack.back();
+      stack.pop_back();
+      int node = e.node;
+      /*
+      std::cout << std::string(e.indent, ' ') << node << "," << p[node].primi
+                << std::endl;
+      p[node].aabb.print();
+      */
+      if (inds.count(node)) {
+        std::cout << "cyclic" << std::endl;
+        return false;
+      }
+      if (p[node].primi >= 0) {
+        if (p[node].height) {
+          std::cout << "leaf has height" << std::endl;
+          return false;
+        }
+        continue;
+      }
+      int nl = p[node].child[0];
+      int nr = p[node].child[1];
+      if (p[node].height != imax(p[nl].height, p[nr].height) + 1) {
+        // std::cout << "height incorrect" << std::endl;
+        // return false;
+      }
+      if (p[nl].parent != node || p[nr].parent != node) {
+        std::cout << "parent incorrect" << std::endl;
+        return false;
+      }
+      if (!p[node].aabb.contains(p[nl].aabb) ||
+          !p[node].aabb.contains(p[nr].aabb)) {
+        std::cout << "aabb not bounding" << std::endl;
+        return false;
+      }
+      stack.push_back({nl, e.indent + 8});
+      stack.push_back({nr, e.indent + 8});
+    }
+    return true;
   }
 };
 

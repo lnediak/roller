@@ -1,23 +1,27 @@
 #ifndef ROLLER_PHYSICS_POOL_HPP_
 #define ROLLER_PHYSICS_POOL_HPP_
 
+#include <cstring>
 #include <memory>
 
 namespace roller {
 
 template <class Entry> class Pool {
-  std::unique_ptr<Entry> a;
+  std::unique_ptr<Entry[]> a;
   std::size_t sz;
-  std::unique_ptr<int> st; /// stack for free entries
+  std::unique_ptr<int[]> st; /// stack for free entries
+  std::size_t tz;            /// stack size
 
+  /// note: only called when tz == 0
   void resize() {
     std::size_t osz = sz;
     sz *= 2;
     st.reset(new int[sz]);
-    for (std::size_t i = osz; i < sz; i++) {
+    for (std::size_t i = 0; i < osz; i++) {
       st[i] = sz - 1 - i;
     }
-    std::unique_ptr<Entry> aNew(new Entry[sz]);
+    tz = osz;
+    std::unique_ptr<Entry[]> aNew(new Entry[sz]);
     std::memcpy(aNew.get(), a.get(), osz * sizeof(Entry));
     a = std::move(aNew);
   }
@@ -31,23 +35,23 @@ template <class Entry> class Pool {
 public:
   typedef Entry value_type;
 
-  Pool() : a(new Entry[256]), sz(256), st(new int[256]) { init(); }
-  explicit Pool(std::size_t sz) : a(new Entry[sz]), sz(sz), st(new int[sz]) {
+  Pool() : a(new Entry[256]), sz(256), st(new int[256]), tz(256) { init(); }
+  explicit Pool(std::size_t sz)
+      : a(new Entry[sz]), sz(sz), st(new int[sz]), tz(sz) {
     init();
   }
 
   Entry &operator[](int i) { return a[i]; }
-  const Entry &operator[](int i) { return a[i]; }
+  const Entry &operator[](int i) const { return a[i]; }
   std::size_t size() const { return sz; }
 
   int mkNew() {
-    if (st.empty()) {
+    if (!tz) {
       resize();
     }
-    int toret = st.back();
-    st.pop_back();
+    return st[--tz];
   }
-  void rem(int i) { st.push_back(i); }
+  void rem(int i) { st[tz++] = i; }
 };
 
 } // namespace roller
