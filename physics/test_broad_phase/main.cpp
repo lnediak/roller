@@ -211,7 +211,8 @@ int testBroadPhaseAABB(int numIters, int numWats, int numSubIters) {
         }
         for (auto iter = w.begin(), iter_end = w.end(); iter != iter_end;
              ++iter) {
-          if (!goofy(mtrand)) {
+          int cond = goofy(mtrand); // gives a chance to delete everything
+          if (!cond || !goofy(mtrand)) {
             iter->aabb = randAABB(mtrand, rdistro, pdistro);
             iter->leafi = broadPhase.update(
                 iter->leafi, iter->aabb,

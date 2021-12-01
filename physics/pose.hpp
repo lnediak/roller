@@ -51,7 +51,7 @@ v::DVec<4> applyDAngVelo(const v::DVec<4> &q, const v::DVec<3> &w) {
 }
 
 /// convert quaternion to rotation matrix
-DMat3x3 quaternionToRotMat(const v::DVec<4> &q) const {
+DMat3x3 quaternionToRotMat(const v::DVec<4> &q) {
   double x2 = 2 * q[1] * q[1];
   double y2 = 2 * q[2] * q[2];
   double z2 = 2 * q[3] * q[3];
@@ -149,7 +149,10 @@ struct Pose {
 };
 
 Pose combinePose(const Pose &base, const Pose &rel) {
-  return {base.toWorldCoords(rel.p), quaternionMult(base.q, rel.q)};
+  Pose ret;
+  ret.p = base.toWorldCoords(rel.p);
+  ret.q = quaternionMult(base.q, rel.q);
+  return ret;
 }
 
 } // namespace roller

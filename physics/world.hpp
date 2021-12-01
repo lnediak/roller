@@ -24,7 +24,11 @@ template <class Indexable> void dllRemove(Indexable &p, int i) {
   p[p[i].previ].nexti = p[i].nexti;
   p[p[i].nexti].previ = p[i].previ;
 }
-template <class Indexable, class Fun> struct DllIterator {
+template <class T> struct RetSame {
+  T operator()(const T &t) const noexcept { return t; }
+};
+/// iterator for a (circular) doubly linked list
+template <class Indexable, class Fun = RetSame> struct DllIterator {
   typedef std::ptrdiff_t difference_type;
   typedef typename std::decay<Fun>::type::return_type value_type;
   typedef value_type *pointer;
@@ -37,6 +41,7 @@ template <class Indexable, class Fun> struct DllIterator {
 
   // say hi to DefaultConstructible
   DllIterator() : p(nullptr), i(-1) {}
+  DllIterator(Indexable *p, int i) : p(p), i(i) {}
   DllIterator(Indexable *p, int i, Fun &&fun) : p(p), i(i), fun(fun) {}
 
   reference operator*() { return fun((*p)[i]); }
@@ -78,8 +83,8 @@ template <class Indexable, class Fun> struct DllIterator {
 template <class Prim, class Obj> struct World {
   struct PrimEntry {
     Prim prim;
-    AABB aabb;
-    int obji; /// the index of the object this primitive is in
+    int leafi; /// index of leaf in broad phase
+    int obji;  /// the index of the object this primitive is in
     /// doubly linked list values for primitives in same object
     int nexti;
     int previ;
@@ -134,8 +139,10 @@ template <class Prim, class Obj> struct World {
       dllAddAfter(prims, primi, tprimi);
     }
   }
+
   /// assumes obji is independent
   void remObj(int obji) {
+    // TODO: FIX
     int primi = objs[obji].primi;
     int tprimi = primi;
     do {
@@ -149,8 +156,8 @@ template <class Prim, class Obj> struct World {
 
 private:
   void updateObj0(int obji) {
-    objs[obji].obj.setCPhysInfo(cpi, DllIterator<Pool<PrimEntry>, GetPrim>(
-                                         &prims, objs[obji].primi, GetPrim()));
+    objs[obji].obj.setCPhysInfo(
+        cpi, DllIterator<Pool<PrimEntry>, GetPrim>(&prims, objs[obji].primi));
   }
 
 public:

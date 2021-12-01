@@ -24,7 +24,6 @@ struct CCDOBBIntersector {
   CCDOBBIntersector() {}
   CCDOBBIntersector(const OBB &p, const OBB &q) { initInt(p, q); }
 
-  /// XXX: evaluate orientation-related constants for optimization
   void initInt(const OBB &pp, const OBB &qq) {
     p = pp;
     q = qq;

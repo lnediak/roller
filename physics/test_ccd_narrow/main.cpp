@@ -74,11 +74,11 @@ double getTime(const OBB &p, v::DVec<3> pv, v::DVec<3> omega1, v::DVec<3> pc,
   return 1.0001;
 }
 
-int testRot() {
+int testRot(int numIters, int numSubIters) {
   std::uniform_real_distribution<> distro(-10, 10);
   std::uniform_real_distribution<> smol(-0.05, 0.05);
   std::uniform_real_distribution<> pdistro(0, 10);
-  for (int spam = 0; spam < 5000; spam++) {
+  for (int spam = 0; spam < numIters; spam++) {
     std::mt19937 mtrand(spam);
     // if (spam % 10 == 0) {
     std::cout << "Iteration #" << spam << std::endl;
@@ -96,7 +96,7 @@ int testRot() {
 
     CCDRotOBBIntersector inn(pp, {1, 1, 1}, omega1, pc, qp, {1, 1, 1}, omega2,
                              qc, 1e-2);
-    for (int spam2 = 0; spam2 < 1000; spam2++) {
+    for (int spam2 = 0; spam2 < numSubIters; spam2++) {
       pp.p = {distro(mtrand), distro(mtrand), distro(mtrand)};
       qp.p = {distro(mtrand), distro(mtrand), distro(mtrand)};
       v::DVec<3> pv{distro(mtrand), distro(mtrand), distro(mtrand)};
@@ -328,6 +328,5 @@ int testLinear() {
 int main() {
   // return testIntervalInt();
   // return testLinear();
-  return testRot();
+  return testRot(100, 500);
 }
-
