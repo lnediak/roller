@@ -58,6 +58,10 @@ void apply2Pose(Pose &p, v::DVec<3> trans, v::DVec<3> omega, v::DVec<3> c) {
   p.p = trans + c + applyQuaternion(p.p - c, orot);
   p.q = normalizeQuaternion(quaternionMult(orot, p.q));
 }
+void apply(OBB &p, const ScrewM &pm) { apply(p, pm.velo, pm.omega, pm.center); }
+void apply2Pose(Pose &p, const ScrewM &pm) {
+  apply(p, pm.velo, pm.omega, pm.center);
+}
 
 double getTime(const OBB &p, v::DVec<3> pv, v::DVec<3> omega1, v::DVec<3> pc,
                const OBB &q, v::DVec<3> qv, v::DVec<3> omega2, v::DVec<3> qc,
@@ -73,114 +77,116 @@ double getTime(const OBB &p, v::DVec<3> pv, v::DVec<3> omega1, v::DVec<3> pc,
   }
   return 1.0001;
 }
+double getTime(const OBB &p, const ScrewM &pm, const OBB &q, const ScrewM &qm,
+               double dt) {
+  return getTime(p, pm.velo, pm.omega, pm.center, q, qm.velo, qm.omega,
+                 qm.center, dt);
+}
 
-int testRot(int numIters, int numSubIters) {
+int testRot(int numIters) {
   std::uniform_real_distribution<> distro(-10, 10);
   std::uniform_real_distribution<> smol(-0.05, 0.05);
   std::uniform_real_distribution<> pdistro(0, 10);
   for (int spam = 0; spam < numIters; spam++) {
     std::mt19937 mtrand(spam);
-    // if (spam % 10 == 0) {
-    std::cout << "Iteration #" << spam << std::endl;
-    // }
+    if (spam % 100 == 0) {
+      std::cout << "Iteration #" << spam << std::endl;
+    }
     Pose pp;
+    pp.p = {distro(mtrand), distro(mtrand), distro(mtrand)};
     pp.q = normalizeQuaternion(
         {distro(mtrand), distro(mtrand), distro(mtrand), distro(mtrand)});
     Pose qp;
+    qp.p = {distro(mtrand), distro(mtrand), distro(mtrand)};
     qp.q = normalizeQuaternion(
         {distro(mtrand), distro(mtrand), distro(mtrand), distro(mtrand)});
+
+    v::DVec<3> pv{distro(mtrand), distro(mtrand), distro(mtrand)};
+    v::DVec<3> qv{distro(mtrand), distro(mtrand), distro(mtrand)};
     v::DVec<3> omega1{smol(mtrand), smol(mtrand), smol(mtrand)};
     v::DVec<3> omega2{smol(mtrand), smol(mtrand), smol(mtrand)};
     v::DVec<3> pc{distro(mtrand), distro(mtrand), distro(mtrand)};
     v::DVec<3> qc{distro(mtrand), distro(mtrand), distro(mtrand)};
 
-    CCDRotOBBIntersector inn(pp, {1, 1, 1}, omega1, pc, qp, {1, 1, 1}, omega2,
-                             qc, 1e-2);
-    for (int spam2 = 0; spam2 < numSubIters; spam2++) {
-      pp.p = {distro(mtrand), distro(mtrand), distro(mtrand)};
-      qp.p = {distro(mtrand), distro(mtrand), distro(mtrand)};
-      v::DVec<3> pv{distro(mtrand), distro(mtrand), distro(mtrand)};
-      v::DVec<3> qv{distro(mtrand), distro(mtrand), distro(mtrand)};
-      OBB p = CCDRotOBBIntersector::poseToOBB(
-          pp, {pdistro(mtrand), pdistro(mtrand), pdistro(mtrand)});
-      OBB q = CCDRotOBBIntersector::poseToOBB(
-          qp, {pdistro(mtrand), pdistro(mtrand), pdistro(mtrand)});
-      inn.updateOBBs(pp.p, p.s, qp.p, q.s);
-      Contact resc = inn.getInt(pv, qv);
-      double res1 = resc.t;
-      if (res1 > 1) {
-        res1 = 1.0001;
-      }
-      double res2 = res1;
-      double dt = 0.01;
-      double dttol = 0.03;
-      if (spam < 20) {
-        dt = 0.001;
-        dttol = 0.02;
-      }
-      if (spam < 100) {
-        res2 = getTime(p, pv, omega1, pc, q, qv, omega2, qc, dt);
-      }
+    OBB p =
+        ccd::poseToOBB(pp, {pdistro(mtrand), pdistro(mtrand), pdistro(mtrand)});
+    OBB q =
+        ccd::poseToOBB(qp, {pdistro(mtrand), pdistro(mtrand), pdistro(mtrand)});
+    Contact resc = obbRot(p, {pv, omega1, pc}, q, {qv, omega2, qc}, 1e-2);
+    double res1 = resc.t;
+    if (res1 > 1) {
+      res1 = 1.0001;
+    }
+    double res2 = res1;
+    double dt = 0.01;
+    double dttol = 0.03;
+    if (spam < 20) {
+      dt = 0.001;
+      dttol = 0.02;
+    }
+    if (spam < 100) {
+      res2 = getTime(p, pv, omega1, pc, q, qv, omega2, qc, dt);
+    }
 
-      /*
-      OBB spamp = p;
-      apply(spamp, pv, omega1, pc);
-      OBB spamq = q;
-      apply(spamq, qv, omega2, qc);
-      std::cout << std::endl << "spamp, spamq:" << std::endl;
-      std::cout << spamp.b << spamp.s << spamp.x << spamp.y << spamp.z
-                << spamp.a << spamp.c << std::endl;
-      std::cout << spamq.b << spamq.s << spamq.x << spamq.y << spamq.z
-                << spamq.a << spamq.c << std::endl;
-                */
+    /*
+    OBB spamp = p;
+    apply(spamp, pv, omega1, pc);
+    OBB spamq = q;
+    apply(spamq, qv, omega2, qc);
+    std::cout << std::endl << "spamp, spamq:" << std::endl;
+    std::cout << spamp.b << spamp.s << spamp.x << spamp.y << spamp.z
+              << spamp.a << spamp.c << std::endl;
+    std::cout << spamq.b << spamq.s << spamq.x << spamq.y << spamq.z
+              << spamq.a << spamq.c << std::endl;
+              */
 
-      OBB op = p;
-      apply(op, res1 * pv, res1 * omega1, pc);
-      OBB oq = q;
-      apply(oq, res1 * qv, res1 * omega2, qc);
-      op.a -= 0.01;
-      op.c += 0.01;
-      oq.a -= 0.01;
-      oq.c += 0.01;
-      double df = res1 > res2 ? res1 - res2 : res2 - res1;
-      bool kekis =
-          res1 != 0 && res1 <= 1 && (!op.isIn(resc.p) || !oq.isIn(resc.p));
-      if (df >= dttol || kekis) {
-        if (res1 <= 1 && res2 >= 1 && !kekis) {
-          std::cout << "false positive..." << std::endl;
-          continue;
-        }
-        std::cout << op.b << op.s << op.x << op.y << op.z << op.a << op.c
-                  << std::endl;
-        std::cout << oq.b << oq.s << oq.x << oq.y << oq.z << oq.a << oq.c
-                  << std::endl;
-        std::cout << v::dot(op.x, resc.p) << " " << v::dot(op.y, resc.p) << " "
-                  << v::dot(op.z, resc.p) << std::endl;
-        std::cout << v::dot(oq.x, resc.p) << " " << v::dot(oq.y, resc.p) << " "
-                  << v::dot(oq.z, resc.p) << std::endl;
-        Pose ppp = pp;
-        Pose qpp = qp;
-        apply2Pose(ppp, res1 * pv, res1 * omega1, pc);
-        apply2Pose(qpp, res1 * qv, res1 * omega2, qc);
-        std::cout << ppp.p << ppp.q << std::endl;
-        std::cout << qpp.p << qpp.q << std::endl;
-        std::cout << resc.p << resc.d << " " << resc.n << std::endl;
-
-        std::cerr << "FAIL!" << std::endl;
-        std::cerr << "Iteration #" << spam << std::endl;
-        std::cerr << "Sub-Iteration #" << spam2 << std::endl;
-        std::cerr << "CCDRotOBBIntersector result: " << res1 << std::endl;
-        std::cerr << "stupid result: " << res2 << std::endl;
-        std::cerr << "pp.p, pp.q: " << pp.p << pp.q << std::endl;
-        std::cerr << "qp.p, qp.q: " << qp.p << qp.q << std::endl;
-        std::cerr << "ps, qs: " << p.s << q.s << std::endl;
-        std::cerr << "pv, pc, omega1: " << pv << pc << omega1 << std::endl;
-        std::cerr << "qv, qc, omega2: " << qv << qc << omega2 << std::endl;
-        return 1;
+    OBB op = p;
+    apply(op, res1 * pv, res1 * omega1, pc);
+    OBB oq = q;
+    apply(oq, res1 * qv, res1 * omega2, qc);
+    op.a -= 0.01;
+    op.c += 0.01;
+    oq.a -= 0.01;
+    oq.c += 0.01;
+    double df = res1 > res2 ? res1 - res2 : res2 - res1;
+    bool kekis =
+        res1 != 0 && res1 <= 1 && (!op.isIn(resc.p) || !oq.isIn(resc.p));
+    if (df >= dttol || kekis) {
+      if (res1 <= 1 && res2 >= 1 && !kekis) {
+        std::cout << "false positive..." << std::endl;
+        continue;
       }
+      std::cout << op.b << op.s << op.x << op.y << op.z << op.a << op.c
+                << std::endl;
+      std::cout << oq.b << oq.s << oq.x << oq.y << oq.z << oq.a << oq.c
+                << std::endl;
+      std::cout << v::dot(op.x, resc.p) << " " << v::dot(op.y, resc.p) << " "
+                << v::dot(op.z, resc.p) << std::endl;
+      std::cout << v::dot(oq.x, resc.p) << " " << v::dot(oq.y, resc.p) << " "
+                << v::dot(oq.z, resc.p) << std::endl;
+      Pose ppp = pp;
+      Pose qpp = qp;
+      apply2Pose(ppp, res1 * pv, res1 * omega1, pc);
+      apply2Pose(qpp, res1 * qv, res1 * omega2, qc);
+      std::cout << ppp.p << ppp.q << std::endl;
+      std::cout << qpp.p << qpp.q << std::endl;
+      std::cout << resc.p << resc.d << " " << resc.n << std::endl;
+
+      std::cerr << "FAIL!" << std::endl;
+      std::cerr << "Iteration #" << spam << std::endl;
+      std::cerr << "Sub-Iteration #" << spam2 << std::endl;
+      std::cerr << "CCDRotOBBIntersector result: " << res1 << std::endl;
+      std::cerr << "stupid result: " << res2 << std::endl;
+      std::cerr << "pp.p, pp.q: " << pp.p << pp.q << std::endl;
+      std::cerr << "qp.p, qp.q: " << qp.p << qp.q << std::endl;
+      std::cerr << "ps, qs: " << p.s << q.s << std::endl;
+      std::cerr << "pv, pc, omega1: " << pv << pc << omega1 << std::endl;
+      std::cerr << "qv, qc, omega2: " << qv << qc << omega2 << std::endl;
+      return 1;
     }
   }
-  return 0;
+}
+return 0;
 }
 int testIntervalInt() {
   struct BasicTest {
