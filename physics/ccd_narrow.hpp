@@ -334,7 +334,6 @@ Contact obbRot(const Pose &p, const v::DVec<3> &ps, const ScrewM &pm,
                double tol = 2e-5) {
   tol -= 1e-5; // to deal with error arising from obbLinear
 
-  // state 0 unused, just makes indexing intuitive
   RotState states[MAX_SUBDIVISION + 1];
   struct MQ {
     v::DVec<4> q;
@@ -356,13 +355,17 @@ Contact obbRot(const Pose &p, const v::DVec<3> &ps, const ScrewM &pm,
   smolRot1[0] = tmpw1;
   v::DVec<4> tmpw2 = normalizeQuaternion(getRotQuaternion(w2 / 2));
   smolRot2[0] = tmpw2;
-  OBB tmppo, tmpqo;
-  tmppo.b = p.p;
-  tmppo.s = ps;
-  tmpqo.b = q.p;
-  tmpqo.s = qs;
-  setOBBOrientation(p, tmppo);
-  setOBBOrientation(q, tmpqo);
+  OBB tmppo = poseToOBB(p, ps);
+  OBB tmpqo = poseToOBB(q, qs);
+  states[0].u1 = p.q;
+  states[0].u2 = q.q;
+  states[0].px = tmppo.x;
+  states[0].py = tmppo.y;
+  states[0].pz = tmppo.z;
+  states[0].qx = tmpqo.x;
+  states[0].qy = tmpqo.y;
+  states[0].qz = tmpqo.z;
+  states[0].isInit = true;
 
   Pose tmpp = p;
   tmpp.p -= pm.center;
@@ -393,7 +396,7 @@ Contact obbRot(const Pose &p, const v::DVec<3> &ps, const ScrewM &pm,
     obb4.properify();
     obb2.fattenOBB(obb4);
 
-    double timedivf = 1 / ((double)(1 << subdiv.lvl));
+    double timedivf = 1. / (1 << subdiv.lvl);
     v::DVec<3> pvelo = pm.velo * timedivf + pdisp;
     v::DVec<3> qvelo = qm.velo * timedivf + qdisp;
 
@@ -411,7 +414,8 @@ Contact obbRot(const Pose &p, const v::DVec<3> &ps, const ScrewM &pm,
     indf /= MAX_SUBDIVISION;
     obb1.b += pm.velo * indf;
     obb2.b += qm.velo * indf;
-
+    obb1.properify();
+    obb2.properify();
     Contact contact = obbLinear(obb1, pvelo, obb2, qvelo);
     if (contact.t <= 1) {
       double tmp1 = w1n * timedivf;
@@ -425,7 +429,7 @@ Contact obbRot(const Pose &p, const v::DVec<3> &ps, const ScrewM &pm,
         return contact;
       }
       subdivm.lvl = ++subdiv.lvl;
-      double rat = timedivf * .5;
+      double rat = timedivf * .25;
       subdivm.w1 = subdiv.w1 =
           smolRot1[subdiv.lvl].isInit
               ? smolRot1[subdiv.lvl].q
