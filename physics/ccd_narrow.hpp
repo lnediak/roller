@@ -384,7 +384,8 @@ Contact obbRot(const Pose &p, const v::DVec<3> &ps, const ScrewM &pm,
 
     OBB obb1 = subdivm.po.wrapOBB(subdiv.po);
     OBB obb2 = subdivm.qo.wrapOBB(subdiv.qo);
-    // XXX: CHECK TO SEE IF THIS IS REALLY NECESSARY
+    /*
+    // redundant, but makes it easier to understand
     OBB obb3 = subdivm.po.wrapOBB(subdivl.po);
     OBB obb4 = subdivm.qo.wrapOBB(subdivl.qo);
     v::DVec<3> pdisp = obb3.center() - obb1.center();
@@ -395,6 +396,9 @@ Contact obbRot(const Pose &p, const v::DVec<3> &ps, const ScrewM &pm,
     obb4.b -= qdisp;
     obb4.properify();
     obb2.fattenOBB(obb4);
+    */
+    v::DVec<3> pdisp = subdivl.po.center() - obb1.center();
+    v::DVec<3> qdisp = subdivl.qo.center() - obb2.center();
 
     double timedivf = 1. / (1 << subdiv.lvl);
     v::DVec<3> pvelo = pm.velo * timedivf + pdisp;

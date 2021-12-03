@@ -43,44 +43,27 @@ bool stupidOBBInt(const OBB &a, const OBB &b) {
   return false;
 }
 
-void apply(OBB &p, v::DVec<3> trans, v::DVec<3> omega, v::DVec<3> c) {
-  omega /= 2;
-  v::DVec<4> orot = getRotQuaternion(omega);
-  p.b = trans + c + applyQuaternion(p.b - c, orot);
-  p.x = applyQuaternion(p.x, orot);
-  p.y = applyQuaternion(p.y, orot);
-  p.z = applyQuaternion(p.z, orot);
+void apply(OBB &p, const ScrewM &pm) {
+  v::DVec<4> orot = getRotQuat(pm);
+  apply2Pos(p.b, pm.velo, orot, pm.center);
+  apply2Vec(p.x, orot);
+  apply2Vec(p.y, orot);
+  apply2Vec(p.z, orot);
   p.properify();
 }
-void apply2Pose(Pose &p, v::DVec<3> trans, v::DVec<3> omega, v::DVec<3> c) {
-  omega /= 2;
-  v::DVec<4> orot = getRotQuaternion(omega);
-  p.p = trans + c + applyQuaternion(p.p - c, orot);
-  p.q = normalizeQuaternion(quaternionMult(orot, p.q));
-}
-void apply(OBB &p, const ScrewM &pm) { apply(p, pm.velo, pm.omega, pm.center); }
-void apply2Pose(Pose &p, const ScrewM &pm) {
-  apply2Pose(p, pm.velo, pm.omega, pm.center);
-}
 
-double getTime(const OBB &p, v::DVec<3> pv, v::DVec<3> omega1, v::DVec<3> pc,
-               const OBB &q, v::DVec<3> qv, v::DVec<3> omega2, v::DVec<3> qc,
+double getTime(const OBB &p, const ScrewM &pm, const OBB &q, const ScrewM &qm,
                double dt) {
   for (double t = 0; t < 1; t += dt) {
     OBB pp = p;
-    apply(pp, t * pv, t * omega1, pc);
+    apply(pp, mult(t, pm));
     OBB qq = q;
-    apply(qq, t * qv, t * omega2, qc);
+    apply(qq, mult(t, qm));
     if (stupidOBBInt(pp, qq)) {
       return t;
     }
   }
   return 1.0001;
-}
-double getTime(const OBB &p, const ScrewM &pm, const OBB &q, const ScrewM &qm,
-               double dt) {
-  return getTime(p, pm.velo, pm.omega, pm.center, q, qm.velo, qm.omega,
-                 qm.center, dt);
 }
 
 int testRot(int numIters, int hpthresh, int stupidthresh) {
@@ -150,9 +133,9 @@ int testRot(int numIters, int hpthresh, int stupidthresh) {
               */
 
     OBB op = p;
-    apply(op, res1 * pv, res1 * omega1, pc);
+    apply(op, mult(res1, pm));
     OBB oq = q;
-    apply(oq, res1 * qv, res1 * omega2, qc);
+    apply(oq, mult(res1, qm));
     op.a -= 0.01;
     op.c += 0.01;
     oq.a -= 0.01;
@@ -175,12 +158,12 @@ int testRot(int numIters, int hpthresh, int stupidthresh) {
                 << v::dot(oq.z, resc.p) << std::endl;
       Pose pp1 = pp;
       Pose qp1 = qp;
-      apply2Pose(pp1, res1 * pv, res1 * omega1, pc);
-      apply2Pose(qp1, res1 * qv, res1 * omega2, qc);
+      apply2Pose(pp1, mult(res1, pm));
+      apply2Pose(qp1, mult(res1, qm));
       Pose pp2 = pp;
       Pose qp2 = qp;
-      apply2Pose(pp2, res2 * pv, res2 * omega1, pc);
-      apply2Pose(qp2, res2 * qv, res2 * omega2, qc);
+      apply2Pose(pp2, mult(res2, pm));
+      apply2Pose(qp2, mult(res2, qm));
       std::cout << pp1.p << pp1.q << std::endl;
       std::cout << qp1.p << qp1.q << std::endl;
       std::cout << pp2.p << pp2.q << std::endl;
@@ -267,6 +250,10 @@ int testLinear(int numIters, int hpthresh, int stupidthresh) {
         {distro(mtrand), distro(mtrand), distro(mtrand), distro(mtrand)});
     v::DVec<3> pv{distro(mtrand), distro(mtrand), distro(mtrand)};
     v::DVec<3> qv{distro(mtrand), distro(mtrand), distro(mtrand)};
+    v::DVec<3> zero{0, 0, 0};
+    ScrewM pm = {pv, zero, zero};
+    ScrewM qm = {qv, zero, zero};
+
     OBB p =
         ccd::poseToOBB(pp, {pdistro(mtrand), pdistro(mtrand), pdistro(mtrand)});
     OBB q =
@@ -277,7 +264,6 @@ int testLinear(int numIters, int hpthresh, int stupidthresh) {
     if (res1 > 1) {
       res1 = 1.0001;
     }
-    v::DVec<3> zero{0, 0, 0};
     double res2 = res1;
     double dt = 0.05;
     double dttol = 0.1;
@@ -287,13 +273,13 @@ int testLinear(int numIters, int hpthresh, int stupidthresh) {
       dttol = 0.002;
     }
     if (spam < stupidthresh) {
-      res2 = getTime(p, pv, zero, zero, q, qv, zero, zero, dt);
+      res2 = getTime(p, pm, q, qm, dt);
     }
 
     OBB op = p;
-    apply(op, res1 * pv, zero, zero);
+    apply(op, mult(res1, pm));
     OBB oq = q;
-    apply(oq, res1 * qv, zero, zero);
+    apply(oq, mult(res1, qm));
     op.a -= 1e-4;
     op.c += 1e-4;
     oq.a -= 1e-4;
