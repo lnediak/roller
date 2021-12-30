@@ -267,10 +267,12 @@ struct RotState {
   v::DVec<3> px, py, pz, qx, qy, qz; // x,y,z of the respective OBBs
 };
 
+#ifndef OBBROT_MAX_LVLS
 // 1 means no subdividing, 2 means subdividing once in the middle, etc.
-#define MAX_LEVELS 7
+#define OBBROT_MAX_LVLS 7
+#endif
 // because we have to calculate using the orientation in the middle of the arc
-#define MAX_SUBDIVISION (1 << MAX_LEVELS)
+#define OBBROT_MAX_SUBDIV (1 << OBBROT_MAX_LVLS)
 
 void setOBBOrientation(const Pose &pose, OBB &obb) {
   DMat3x3 ro = pose.toRotationMatrix().transpose();
@@ -300,7 +302,7 @@ void modSubdiv(Subdiv &sd, RotState *states, const v::DVec<3> &pc,
   sd.qq.p = applyQuaternion(sd.qq.p, sd.w2);
   sd.po.b = sd.pp.p + pc;
   sd.qo.b = sd.qq.p + qc;
-  std::size_t lvll = MAX_SUBDIVISION >> (sd.lvl + 1);
+  std::size_t lvll = OBBROT_MAX_SUBDIV >> (sd.lvl + 1);
   sd.ind += lvll;
   if (states[sd.ind].isInit) {
     sd.pp.q = states[sd.ind].u1;
@@ -334,15 +336,15 @@ Contact obbRot(const Pose &p, const v::DVec<3> &ps, const ScrewM &pm,
                double tol = 2e-5) {
   tol -= 1e-5; // to deal with error arising from obbLinear
 
-  RotState states[MAX_SUBDIVISION + 1];
+  RotState states[OBBROT_MAX_SUBDIV + 1];
   struct MQ {
     v::DVec<4> q;
     bool isInit;
     MQ() : isInit(false) {}
     MQ(const v::DVec<4> &q) : q(q), isInit(true) {}
   };
-  MQ smolRot1[MAX_LEVELS];
-  MQ smolRot2[MAX_LEVELS];
+  MQ smolRot1[OBBROT_MAX_LVLS];
+  MQ smolRot2[OBBROT_MAX_LVLS];
 
   // getRotQuaternion takes the angular velocity / 2 lol
   v::DVec<3> w1 = pm.omega / 2;
@@ -415,7 +417,7 @@ Contact obbRot(const Pose &p, const v::DVec<3> &ps, const ScrewM &pm,
     obb2.inflate(errq);
 
     double indf = subdiv.ind;
-    indf /= MAX_SUBDIVISION;
+    indf /= OBBROT_MAX_SUBDIV;
     obb1.b += pm.velo * indf;
     obb2.b += qm.velo * indf;
     obb1.properify();
@@ -427,7 +429,8 @@ Contact obbRot(const Pose &p, const v::DVec<3> &ps, const ScrewM &pm,
       // sum here (also the 2*) is fat overestimate, but why not
       double errpt = 2 * (tmp1 * v::sum(obb1.s) + errp);
       double errqt = 2 * (tmp2 * v::sum(obb2.s) + errq);
-      if ((errpt < tol && errqt < tol) || (subdivm.lvl + 1 >= MAX_LEVELS)) {
+      if ((errpt < tol && errqt < tol) ||
+          (subdivm.lvl + 1 >= OBBROT_MAX_LVLS)) {
         contact.t *= timedivf;
         contact.t += indf;
         return contact;
@@ -456,8 +459,7 @@ Contact obbRot(const Pose &p, const v::DVec<3> &ps, const ScrewM &pm,
   return ret;
 }
 
-#undef MAX_SUBDIVISION
-#undef MAX_LEVELS
+#undef OBBROT_MAX_SUBDIV
 
 } // namespace ccd
 

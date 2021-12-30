@@ -146,14 +146,22 @@ struct Pose {
   v::DVec<3> fromWorldCoords(const v::DVec<3> &c) const {
     return fromShiftWorldCoords(c - p);
   }
-};
 
-Pose combinePose(const Pose &base, const Pose &rel) {
-  Pose ret;
-  ret.p = base.toWorldCoords(rel.p);
-  ret.q = quaternionMult(base.q, rel.q);
-  return ret;
-}
+  /// btw, this is a group operation on Poses
+  Pose toWorldCoords(const Pose &rel) const {
+    Pose ret;
+    ret.p = toWorldCoords(rel.p);
+    ret.q = quaternionMult(q, rel.q);
+    return ret;
+  }
+  /// if Pose::inverse existed, this'd be equiv to .inverse().toWorldCoords(...)
+  Pose fromWorldCoords(const Pose &p) const {
+    Pose ret;
+    ret.p = fromWorldCoords(p.p);
+    ret.q = quaternionMult(quaternionConj(q), p.q);
+    return ret;
+  }
+};
 
 } // namespace roller
 
