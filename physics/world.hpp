@@ -260,8 +260,6 @@ public:
       prims[primi].prim = *iter;
       prims[primi].obji = obji;
       AABB aabb = prims[primi].prim.getAABB({});
-      aabb.m[0] -= pad;
-      aabb.m[1] += pad;
       prims[primi].leafi = broad.insert(primi, aabb);
       if (++iter == iter_end) {
         break;
@@ -285,6 +283,18 @@ public:
     } while (tprimi != primi);
     dllRemove(objs, obji);
     objs.rem(obji);
+  }
+  void breakCObj(int cobji) {
+    int oi = cobjs[cobji].obji;
+    int toi = oi;
+    do {
+      dllRemove(objs, toi);
+      dllAddAfter(objs, 0, toi);
+      objs[toi].cobji = -toi;
+      toi = objs[toi].nexti;
+    } while (toi != oi);
+    dllRemove(cobjs, cobji);
+    cobjs.rem(cobji);
   }
 
 private:
@@ -537,6 +547,100 @@ private:
     coli2->second.obji1 = coli1->second.obji2 = obji2;
     coli1->second.occobji = ccobji2;
     coli2->second.occobji = ccobji1;
+  }
+
+  template <bool doPad> void updateAllAABBs(int obji, const ScrewM &sm) {
+    double pd = pad;
+    int primi = objs[obji].primi;
+    int tprimi = primi;
+    do {
+      if (doPad) {
+        broad.update(prims[tprimi].leafi, prims[tprimi].prim.getAABB(sm),
+                     [pd](AABB aabb) -> AABB {
+                       aabb.m[0] -= pd;
+                       aabb.m[1] += pd;
+                       return aabb;
+                     });
+      } else {
+        broad.update(prims[tprimi].leafi, prims[tprimi].prim.getAABB(sm),
+                     [](const AABB &aabb) -> AABB { return aabb; });
+      }
+    } while (tprimi != primi);
+  }
+
+public:
+  void step(double dt) {
+    collisions.clear();
+    int tcobji = cobjs[0].nexti;
+    while (tcobji) {
+      int tmp = cobjs[tcobji].nexti;
+      breakCObj(tcobji);
+      tcobji = tmp;
+    }
+    if (groundCoal.size() > 1) {
+      int gcobji = addCObj(groundCoal.begin(), groundCoal.end());
+      int oi = cobjs[gcobji].obji;
+      int toi = oi;
+      do {
+        updateAllAABBs<false>(toi, {});
+        toi = objs[toi].nexti;
+      } while (toi != oi);
+      toi = objs[0].nexti;
+      while (toi) {
+        updateAllAABBs<true>(toi, getScrewM(objs[toi].cpi));
+        toi = objs[toi].nexti;
+      }
+    } else {
+      updateAllAABBs<false>(1, {});
+      int toi = objs[0].nexti;
+      while (toi) {
+        if (toi == 1) {
+          toi = objs[toi].nexti;
+          continue;
+        }
+        updateAllAABBs<true>(toi, getScrewM(objs[toi].cpi));
+        toi = objs[toi].nexti;
+      }
+    }
+    broad.exportInts([this, dt](int primi1, int primi2) -> void {
+      checkCollision<true>(0, dt, primi1, primi2);
+    });
+    double time = 0;
+    while (collisions.size()) {
+      auto citer = collisions.end();
+      double ctime = std::numeric_limits<double>::max();
+      int ccobji = 0;
+      for (auto it = collisions.begin(), ite = citer; it != ite; ++it) {
+        if (it->second.c.t < ctime) {
+          citer = it;
+          ctime = e.second.c.t;
+          ccobji = e.first;
+        }
+      }
+      Collision col = citer->second;
+      int occobji = col.occobji;
+      collisions.erase(citer);
+      collisions.erase(occobji);
+      // TODO: process col and advance all objects forward in time
+      int ncobji = mergeCCObjs(ccobji, occobji);
+      time = col.c.t;
+      if (ncobji != objs[1].cobji) {
+        ScrewM sm = getScrewM(cobjs[ncobji].cpi);
+        int oi = cobjs[ncobji].obji;
+        int toi = oi;
+        do {
+          updateAllAABBs<true>(toi, sm);
+          toi = objs[toi].nexti;
+        } while (toi != oi);
+      }
+      broad.exportInts(
+          [this, time, dt, ncobji](int primi1, int primi2) -> void {
+            if (objs[prims[primi1].obji].cobji == ncobji ||
+                objs[prims[primi2].obji].cobji == ncobji) {
+              checkCollision<false>(time, dt, primi1, primi2);
+            }
+          });
+    }
   }
 };
 
