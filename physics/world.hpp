@@ -36,10 +36,14 @@ template <class Indexable> void dllRemove(Indexable &p, int i) {
   p[p[i].nexti].previ = p[i].previ;
 }
 template <class T> struct RetSame {
-  T operator()(const T &t) const noexcept { return t; }
+  T operator()(T t) const noexcept { return t; }
 };
-/// iterator for a (circular) doubly linked list; Fun cannot be pure reference
-template <class Indexable, class Fun = RetSame,
+/*
+  iterator for a (circular) doubly linked list; Fun cannot be pure reference
+  Fun takes reference as input, produces reference
+*/
+template <class Indexable,
+          class Fun = RetSame<decltype(std::declval<Indexable>()[0]) &>,
           class T = decltype(std::declval<Fun>()(std::declval<Indexable>()[0]))>
 struct DllIterator {
   typedef std::ptrdiff_t difference_type;
@@ -48,10 +52,12 @@ struct DllIterator {
   typedef value_type &reference;
   typedef std::bidirectional_iterator_tag iterator_category;
 
+private:
   Indexable *p;
   int i;
   Fun fun;
 
+public:
   // say hi to DefaultConstructible
   DllIterator() : p(nullptr), i(-1) {}
   DllIterator(Indexable *p, int i) : p(p), i(i) {}
@@ -81,27 +87,30 @@ struct DllIterator {
   bool operator==(const DllIterator<Indexable> &o) const { return i == o.i; }
   bool operator!=(const DllIterator<Indexable> &o) const { return i != o.i; }
 };
-/// wraps a LegacyInputIterator
+/// wraps a LegacyInputIterator with a function returning a reference
 template <
-    class Iterator, class Fun = RetSame,
+    class Iterator,
+    class Fun = RetSame<typename std::iterator_traits<Iterator>::value_type &>,
     class T = decltype(std::declval<Fun>()(
-        std::declval<typename std::iterator_traits<Iterator>::value_type>()))>
-class IteratorWrapper {
+        std::declval<typename std::iterator_traits<Iterator>::value_type &>()))>
+struct IteratorWrapper {
   typedef std::ptrdiff_t difference_type;
   typedef T value_type;
   typedef value_type *pointer;
   typedef value_type &reference;
   typedef std::input_iterator_tag iterator_category;
 
+private:
   Iterator i;
   Fun fun;
 
+public:
   IteratorWrapper() {}
   IteratorWrapper(const Iterator &i) : i(i) {}
   IteratorWrapper(const Iterator &i, Fun &&fun) : i(i), fun(fun) {}
 
-  reference operator*() { return *i; }
-  pointer operator->() { return &*i; }
+  reference operator*() { return fun(*i); }
+  pointer operator->() { return &fun(*i); }
   decltype(*this) &operator++() {
     ++i;
     return *this;
@@ -133,7 +142,7 @@ template <class Iterator>
 std::enable_if<std::is_same<typename std::iterator_traits<Iterator>::value_type,
                             CPhysInfo>::value,
                CPhysInfo>
-combineCPI(const Iterator &it, const Iterator &ite) {
+combinedCPI(const Iterator &it, const Iterator &ite) {
   PhysInfo pi;
   double tm = 0;             // total mass
   v::DVec<3> cm = {0, 0, 0}; // center of mass
@@ -162,11 +171,10 @@ combineCPI(const Iterator &it, const Iterator &ite) {
   v::DVec<3> tam = {0, 0, 0};
   for (Iterator o = it; o != ite; ++o) {
     v::DVec<3> relp = cm - o->pi.pose.p;
-    if (!fat) {
-      iner += adjustCenter(o->aux.riner, o->pi.mass, relp);
-      tlm += o->pi.lm;
-      tam += o->pi.am - cross3(relp, o->pi.lm);
-    }
+    iner += adjustCenter(o->aux.rot * o->pi.iner * o->aux.rot.transpose(),
+                         o->pi.mass, relp);
+    tlm += o->pi.lm;
+    tam += o->pi.am - cross3(relp, o->pi.lm);
   }
   pi.lm = tlm;
   pi.am = tam;
@@ -204,7 +212,7 @@ template <class Prim, class Obj> class World {
   struct ObjEntry {
     Obj obj;
     CPhysInfo cpi;
-    Pose relP; /// relative pose to that of parent coalesced object
+    Pose relP; /// cobji>0?cobjs[cobji].cpi.pi.pose.fromWorldCoords(cpi.pi.pose)
     int primi; /// index of one of the primitives this object contains
     int cobji; /// the index of the cobj this is in, or else -(this's index)
     /// dllist of either independent objs or all objs in same cobj
@@ -221,17 +229,17 @@ template <class Prim, class Obj> class World {
   Pool<PrimEntry> prims;
   // element 0 of this is dummy for independent objs dllist, 1 is ground
   Pool<ObjEntry> objs;
-  // element 0 of this is dummy for its dllist
+  // element 0 of this is dummy for its dllist (only meaningful during step)
   Pool<CObjEntry> cobjs;
 
   BroadPhaseAABBTree broad;
 
   struct Collision {
     Contact c;        /// contact time in world time
-    int occobji;      /// other ccobji
+    int occobji;      /// other ccobji (cobji or -obji)
     int obji1, obji2; /// obji1 is for key, obji2 is for occobji
   };
-  /// map from ccobjis to valid earliest-time collisions
+  /// map from ccobjis to valid earliest-time collisions (nonempty only in step)
   std::unordered_map<int, Collision> collisions;
   /// objects coalesced with the ground; includes the ground (1)
   std::unordered_set<int> groundCoal;
@@ -259,7 +267,7 @@ public:
     while (true) {
       prims[primi].prim = *iter;
       prims[primi].obji = obji;
-      AABB aabb = prims[primi].prim.getAABB({});
+      AABB aabb = prims[primi].prim.getAABB(getScrewM(cpi));
       prims[primi].leafi = broad.insert(primi, aabb);
       if (++iter == iter_end) {
         break;
@@ -288,10 +296,11 @@ public:
     int oi = cobjs[cobji].obji;
     int toi = oi;
     do {
+      int tmp = objs[toi].nexti;
       dllRemove(objs, toi);
       dllAddAfter(objs, 0, toi);
       objs[toi].cobji = -toi;
-      toi = objs[toi].nexti;
+      toi = tmp;
     } while (toi != oi);
     dllRemove(cobjs, cobji);
     cobjs.rem(cobji);
@@ -322,6 +331,7 @@ public:
     updateObj0(pose, obji);
   }
 
+private:
   void updateCObj(const CPhysInfo &cpi, int cobji) {
     cobjs[cobji].cpi = cpi;
     updateCObj0(cpi.pi.pose, cobjs[cobji].obji);
@@ -342,10 +352,10 @@ public:
     dllAddAfter(cobjs, 0, cobji);
     struct GetCPI {
       Pool<ObjEntry> *objs;
-      CPhysInfo operator()(int i) const { return (*objs)[i].cpi; }
+      CPhysInfo &operator()(int i) const { return (*objs)[i].cpi; }
     } fun{&objs};
-    cobjs[cobji].cpi =
-        combinedCPI(IteratorWrapper<Iterator, GetCPI>(it, fun), ite);
+    cobjs[cobji].cpi = combinedCPI(IteratorWrapper<Iterator, GetCPI>(it, fun),
+                                   IteratorWrapper<Iterator, GetCPI>(ite, fun));
     for (Iterator o = it; o != ite; ++o) {
       objs[*o].cobji = cobji;
       objs[*o].relP = objs[*o].cpi.pi.pose;
@@ -370,7 +380,8 @@ public:
     return addCObj(objis, objis + 2);
   }
   void addObjToCObj(int cobji, int obji) {
-    CPhysInfo ncpi = combinedCPI(cobjs[cobji].cpi, objs[obji].cpi);
+    int cpis[2] = {cobjs[cobji].cpi, objs[obji].cpi};
+    CPhysInfo ncpi = combinedCPI(cpis, cpis + 2);
     ncpi.pi.pose.q = cobjs[cobji].cpi.pi.pose.q;
     v::DVec<3> transl = ncpi.pi.pose.p - cobjs[cobji].cpi.pi.pose.p;
     cobjs[cobji].cpi = ncpi;
@@ -429,7 +440,6 @@ public:
     return mergeCObjs(ccobji1, ccobji2);
   }
 
-private:
   CPhysInfo getCCObjCPI(int ccobji) const {
     return ccobji < 0 ? objs[-ccobji].cpi : cobjs[ccobji].cpi;
   }
@@ -481,6 +491,7 @@ private:
       return;
     }
     int gccobji = getCCObj(1);
+    // XXX: I'm pretty sure this doesn't work as intended
     if (doC && ((ccobji1 == gccobji && isSmol(sm2)) ||
                 (ccobji2 == gccobji && isSmol(sm1)))) {
       int ngccobji = ccobji1 == gccobji ? ccobji2 : ccobji1;
@@ -519,8 +530,9 @@ private:
       return;
     }
     // note that these do not affect the aux, so updateAux is not necessary
-    tcpi1.pi.pose.p += ccdIntE * sm1.velo;
-    tcpi2.pi.pose.p += ccdIntE * sm2.velo;
+    tcpi1.pi.pose.p += (con.t - time) * sm1.velo;
+    tcpi2.pi.pose.p += (con.t - time) * sm2.velo;
+    // XXX: angular velocity here is approx
     v::DVec<3> urel = tcpi1.getVelocity(con.p) - tcpi2.getVelocity(con.p);
     if (v::dot(urel, con.n) > 0) {
       return;
@@ -535,12 +547,16 @@ private:
       if (occobji != ccobji2) {
         collisions.erase(occobji);
       }
+    } else {
+      coli1 = collisions.insert(ccobji1, Collision());
     }
     if (coli2 != collisions.end()) {
       int occobji = coli2->second.occobji;
       if (occobji != ccobji1) {
         collisions.erase(occobji);
       }
+    } else {
+      coli2 = collisions.insert(ccobji2, Collision());
     }
     coli1->second.c = coli2->second.c = con;
     coli1->second.obji1 = coli2->second.obji2 = obji1;
@@ -565,17 +581,16 @@ private:
         broad.update(prims[tprimi].leafi, prims[tprimi].prim.getAABB(sm),
                      [](const AABB &aabb) -> AABB { return aabb; });
       }
+      tprimi = prims[tprimi].nexti;
     } while (tprimi != primi);
   }
 
 public:
   void step(double dt) {
-    collisions.clear();
-    int tcobji = cobjs[0].nexti;
-    while (tcobji) {
-      int tmp = cobjs[tcobji].nexti;
-      breakCObj(tcobji);
-      tcobji = tmp;
+    for (int toi = objs[0].nexti; toi; toi = objs[toi].nexti;) {
+      CPhysInfo tmp = objs[toi].cpi;
+      tmp.stepVelo<true>(dt, g);
+      updateObj(tmp, toi);
     }
     if (groundCoal.size() > 1) {
       int gcobji = addCObj(groundCoal.begin(), groundCoal.end());
@@ -585,21 +600,17 @@ public:
         updateAllAABBs<false>(toi, {});
         toi = objs[toi].nexti;
       } while (toi != oi);
-      toi = objs[0].nexti;
-      while (toi) {
+      for (toi = objs[0].nexti; toi; toi = objs[toi].nexti;) {
         updateAllAABBs<true>(toi, getScrewM(objs[toi].cpi));
-        toi = objs[toi].nexti;
       }
     } else {
       updateAllAABBs<false>(1, {});
-      int toi = objs[0].nexti;
-      while (toi) {
+      for (int toi = objs[0].nexti; toi; toi = objs[toi].nexti;) {
         if (toi == 1) {
           toi = objs[toi].nexti;
           continue;
         }
         updateAllAABBs<true>(toi, getScrewM(objs[toi].cpi));
-        toi = objs[toi].nexti;
       }
     }
     broad.exportInts([this, dt](int primi1, int primi2) -> void {
@@ -621,9 +632,30 @@ public:
       int occobji = col.occobji;
       collisions.erase(citer);
       collisions.erase(occobji);
-      // TODO: process col and advance all objects forward in time
+
+      double adt = ctime - time;
+      for (int tobji = objs[0].nexti; tobji; tobji = objs[tobji].nexti;) {
+        CPhysInfo tmp = objs[tobji].cpi;
+        tmp.stepTime<true>(adt);
+        updateObj(tmp, tobji);
+      }
+      for (int tcobji = cobjs[0].nexti; tcobji; tcobji = cobjs[tcobji].nexti;) {
+        CPhysInfo tmp = cobjs[tcobji].cpi;
+        tmp.stepTime<true>(adt);
+        updateCObj(tmp, tcobji);
+      }
+      v::DVec<3> imp = ; // TODO:
+      objs[col.obj1].cpi.pi.lm += imp;
+      objs[col.obj2].cpi.pi.lm -= imp;
+      objs[col.obj1].cpi.pi.am +=
+          cross3(col.c.p - objs[col.obj1].cpi.pi.pose.p, imp);
+      objs[col.obj2].cpi.pi.am -=
+          cross3(col.c.p - objs[col.obj2].cpi.pi.pose.p, imp);
+      objs[col.obj1].cpi.updateAux();
+      objs[col.obj2].cpi.updateAux();
+
       int ncobji = mergeCCObjs(ccobji, occobji);
-      time = col.c.t;
+      time = ctime;
       if (ncobji != objs[1].cobji) {
         ScrewM sm = getScrewM(cobjs[ncobji].cpi);
         int oi = cobjs[ncobji].obji;
@@ -640,6 +672,11 @@ public:
               checkCollision<false>(time, dt, primi1, primi2);
             }
           });
+    }
+    for (int tcobji = cobjs[0].nexti; tcobji;) {
+      int tmp = cobjs[tcobji].nexti;
+      breakCObj(tcobji);
+      tcobji = tmp;
     }
   }
 };

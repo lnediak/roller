@@ -73,7 +73,7 @@ struct CPhysInfo {
   }
 
   /// Uses Euler's method. Does not update velocity.
-  template <bool updateA> void stepTime(double dt, double g) {
+  template <bool updateA> void stepTime(double dt) {
     if (!pi.mass) {
       return;
     }
@@ -87,7 +87,7 @@ struct CPhysInfo {
     double dv = dt * g;
     // gravity applies on z-axis
     pi.lm[2] -= dv * pi.mass;
-    if (updateA) {
+    if (updateA && pi.m) {
       aux.velo[2] -= dv;
     }
   }
@@ -96,4 +96,3 @@ struct CPhysInfo {
 } // namespace roller
 
 #endif // ROLLER_PHYSICS_PHYS_INFO_HPP_
-
