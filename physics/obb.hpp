@@ -94,6 +94,7 @@ struct OBB {
     v::DVec<2> ze = extremaAxis(2);
     return {{{xe[0], ye[0], ze[0]}, {xe[1], ye[1], ze[1]}}};
   }
+  // TODO: getAABB(ScrewM)
 
   /// constructs an obb with same x,y,z as *this but contains o
   OBB wrapOBB(const OBB &o) const {

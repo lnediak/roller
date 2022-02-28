@@ -139,9 +139,10 @@ DMat3x3 adjustCenter(const DMat3x3 &iner, double mass, const v::DVec<3> &df) {
 }
 
 template <class Iterator>
-std::enable_if<std::is_same<typename std::iterator_traits<Iterator>::value_type,
-                            CPhysInfo>::value,
-               CPhysInfo>
+typename std::enable_if<
+    std::is_same<typename std::iterator_traits<Iterator>::value_type,
+                 CPhysInfo>::value,
+    CPhysInfo>::type
 combinedCPI(const Iterator &it, const Iterator &ite) {
   PhysInfo pi;
   double tm = 0;             // total mass
@@ -187,7 +188,7 @@ combinedCPI(const Iterator &it, const Iterator &ite) {
   Prim template:
   Pose getPose() const;
   AABB getAABB(const ScrewM &) const;
-  // returned contact time in world time plz
+  // return contact time on same scale as t1 and t2 plz
   Contact doCCD(double t1, double t2, ScrewM, const Prim &, ScrewM) const;
 
   Obj template:
@@ -237,7 +238,7 @@ template <class Prim, class Obj> class World {
   struct Collision {
     Contact c;        /// contact time in world time
     int occobji;      /// other ccobji (cobji or -obji)
-    int obji1, obji2; /// obji1 is for key, obji2 is for occobji
+    int prim1, prim2; /// prim1 is for key, prim2 is for occobji
   };
   /// map from ccobjis to valid earliest-time collisions (nonempty only in step)
   std::unordered_map<int, Collision> collisions;
@@ -248,13 +249,20 @@ template <class Prim, class Obj> class World {
   double pad; // aabb padding
 
 public:
-  // TODO: CONSTRUCTOR
+  World(double g, double pad) : g(g), pad(pad) {
+    objs.mkNew(); // should be 0
+    objs[0].cobji = objs[0].nexti = objs[0].previ = 0;
+    cobjs.mkNew(); // should be 0
+    cobjs[0].obji = cobjs[0].nexti = cobjs[0].previ = 0;
+  }
 
+  /// all the public and private object addition or removal methods require that
+  /// their respective ccobjis are not in collisions
   template <class PrimIter>
-  std::enable_if<
+  typename std::enable_if<
       std::is_same<typename std::iterator_traits<PrimIter>::value_type,
                    Prim>::value,
-      int>
+      int>::type
   addObj(const CPhysInfo &cpi, PrimIter iter, const PrimIter &iter_end) {
     int obji = objs.mkNew();
     objs[obji].cpi = cpi;
@@ -343,10 +351,10 @@ private:
 
   /// takes iterators for object indices
   template <class Iterator>
-  std::enable_if<
+  typename std::enable_if<
       std::is_same<typename std::iterator_traits<Iterator>::value_type,
                    int>::value,
-      int>
+      int>::type
   addCObj(const Iterator &it, const Iterator &ite) {
     int cobji = cobjs.mkNew();
     dllAddAfter(cobjs, 0, cobji);
@@ -559,8 +567,8 @@ private:
       coli2 = collisions.insert(ccobji2, Collision());
     }
     coli1->second.c = coli2->second.c = con;
-    coli1->second.obji1 = coli2->second.obji2 = obji1;
-    coli2->second.obji1 = coli1->second.obji2 = obji2;
+    coli1->second.prim1 = coli2->second.prim2 = prim1;
+    coli2->second.prim1 = coli1->second.prim2 = prim2;
     coli1->second.occobji = ccobji2;
     coli2->second.occobji = ccobji1;
   }
@@ -586,7 +594,11 @@ private:
   }
 
 public:
-  void step(double dt) {
+  template <class Fun>
+  typename std::enable_if<std::is_same<
+      v::DVec<3>, decltype(std::declval<Fun>()(0, CPhysInfo(), 0,
+                                               CPhysInfo()))>::value>::type
+  step(double dt, Fun &&calculateImpulse) {
     for (int toi = objs[0].nexti; toi; toi = objs[toi].nexti;) {
       CPhysInfo tmp = objs[toi].cpi;
       tmp.stepVelo<true>(dt, g);
@@ -614,7 +626,8 @@ public:
       }
     }
     broad.exportInts([this, dt](int primi1, int primi2) -> void {
-      checkCollision<true>(0, dt, primi1, primi2);
+      // XXX: when I feel like it, change false into true
+      checkCollision<false>(0, dt, primi1, primi2);
     });
     double time = 0;
     while (collisions.size()) {
@@ -644,15 +657,16 @@ public:
         tmp.stepTime<true>(adt);
         updateCObj(tmp, tcobji);
       }
-      v::DVec<3> imp = ; // TODO:
-      objs[col.obj1].cpi.pi.lm += imp;
-      objs[col.obj2].cpi.pi.lm -= imp;
-      objs[col.obj1].cpi.pi.am +=
-          cross3(col.c.p - objs[col.obj1].cpi.pi.pose.p, imp);
-      objs[col.obj2].cpi.pi.am -=
-          cross3(col.c.p - objs[col.obj2].cpi.pi.pose.p, imp);
-      objs[col.obj1].cpi.updateAux();
-      objs[col.obj2].cpi.updateAux();
+      v::DVec<3> imp = calculateImpulse(col.c, col.prim1, getCCObjCPI(ccobji),
+                                        col.prim2, getCCObjCPI(occobji));
+      int obji1 = prims[col.prim1].obji;
+      int obji2 = prims[col.prim2].obji;
+      objs[obji1].cpi.pi.lm += imp;
+      objs[obji2].cpi.pi.lm -= imp;
+      objs[obji1].cpi.pi.am += cross3(col.c.p - objs[obji1].cpi.pi.pose.p, imp);
+      objs[obji2].cpi.pi.am -= cross3(col.c.p - objs[obji2].cpi.pi.pose.p, imp);
+      objs[obji1].cpi.updateAux();
+      objs[obji2].cpi.updateAux();
 
       int ncobji = mergeCCObjs(ccobji, occobji);
       time = ctime;

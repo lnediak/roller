@@ -8,7 +8,7 @@
 #include "gl_program.hpp"
 
 #include "prism.hpp"
-// #include "solver.hpp"
+#include "world.hpp"
 
 namespace {
 

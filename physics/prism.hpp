@@ -27,6 +27,8 @@ template <class Tag> struct Prism {
     pi.ineri = {{xx * massi, 0, 0}, {0, yy * massi, 0}, {0, 0, zz * massi}};
   }
 
+  Pose getPose() const { return pi.pose; }
+
   OBB getOBB() const {
     DMat3x3 rott = pi.pose.toRotationMatrix().transpose();
     v::DVec<3> mp = pi.pose.toWorldCoords(-s2);
@@ -36,15 +38,19 @@ template <class Tag> struct Prism {
               << pi.getAuxInfo().riner.c << std::endl;*/
     return {mp, 2 * s2, rott.a, rott.b, rott.c};
   }
-  AABB getAABB() const { return getOBB().getAABB(); }
-  PhysInfo &physInfo() const { return pi; }
+  AABB getAABB(const ScrewM &sm) const { return getOBB().getAABB(sm); }
 
-  /*
-  Contact getContacts(const Prism &q) const {
-    OBBIntersector inter(getOBB(), q.getOBB());
-    return inter.getInts();
+  Contact doCCD(double t1, double t2, const ScrewM &sm1, const Prism &prim2, const ScrewM &sm2) const {
+    Pose pose1 = getPose();
+    pose1.p = pose1.toWorldCoords(-s2);
+    Pose pose2 = prim2.getPose();
+    pose2.p = pose2.toWorldCoords(-pose2.s2);
+    // XXX: Add tolerance as an option
+    Contact toret = obbRot(pose1, 2 * s2, sm1, pose2, 2 * pose2.s2, sm2, 1e-2);
+    toret.t *= (t2 - t1);
+    toret.t += t1;
+    return toret;
   }
-  */
 
   template <class Fun> void exportAllTriangles(const SliceDirs &sd, Fun &&fun) {
     v::DVec<16> projMat = pi.pose.toProjMat(sd);
@@ -116,4 +122,3 @@ template <class Tag> struct Prism {
 } // namespace roller
 
 #endif // ROLLER_PHYSICS_PRISM_HPP_
-
