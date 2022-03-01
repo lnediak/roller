@@ -27,7 +27,8 @@ template <class Tag> struct Prism {
     pi.ineri = {{xx * massi, 0, 0}, {0, yy * massi, 0}, {0, 0, zz * massi}};
   }
 
-  Pose getPose() const { return pi.pose; }
+  void setPose(const Pose &pose) { pi.pose = pose; }
+  PhysInfo getPhysInfo() const { return pi; }
 
   OBB getOBB() const {
     DMat3x3 rott = pi.pose.toRotationMatrix().transpose();
@@ -38,9 +39,12 @@ template <class Tag> struct Prism {
               << pi.getAuxInfo().riner.c << std::endl;*/
     return {mp, 2 * s2, rott.a, rott.b, rott.c};
   }
-  AABB getAABB(const ScrewM &sm) const { return getOBB().getAABB(sm); }
 
-  Contact doCCD(double t1, double t2, const ScrewM &sm1, const Prism &prim2, const ScrewM &sm2) const {
+  // Prim interface functions
+  Pose getPose() const { return pi.pose; }
+  AABB getAABB(const ScrewM &sm) const { return getOBB().getAABB(sm); }
+  Contact doCCD(double t1, double t2, const ScrewM &sm1, const Prism &prim2,
+                const ScrewM &sm2) const {
     Pose pose1 = getPose();
     pose1.p = pose1.toWorldCoords(-s2);
     Pose pose2 = prim2.getPose();
