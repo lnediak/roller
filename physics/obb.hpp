@@ -1,14 +1,50 @@
 #ifndef ROLLER_PHYSICS_OBB_HPP_
 #define ROLLER_PHYSICS_OBB_HPP_
 
+#include <cmath>
+
 #include "aabb.hpp"
-#include "vector.hpp"
+#include "screw.hpp"
+#include "util.hpp"
 
 namespace roller {
+
+AABB getArcAABB(const v::DVec<3> &p, const ScrewM &sm, double tol) {
+  double rnorm = std::sqrt(v::norm2(p - sm.center));
+  double alpha = std::acos(rnorm / (tol + rnorm));
+  double smrad = std::sqrt(v::norm2(sm.omega));
+  double alphat1 = alpha / smrad;
+  double alphat2 = std::tan(alpha) / alpha;
+  v::Dvec<3> nomega = sm.omega / smrad;
+  double theta = 0;
+  v::DVec<3> currp = p;
+  AABB toret = {p, p};
+  while (theta + 2 * alpha < smrad) {
+    v::DVec<3> rvec = currp - sm.center - sm.velo * (theta / smrad);
+    v::DVec<3> outp =
+        currp + sm.velo * alphat1 + v::cross3(sm.omega, rvec) * alphat2;
+    toret = toret.combine({outp, outp});
+    theta += 2 * alpha;
+    currp = p;
+    apply2Vec(currp, mult(theta / smrad, sm));
+  }
+  alpha = (smrad - theta) / 2;
+  alphat1 = alpha / smrad;
+  alphat2 = std::tan(alpha) / alpha;
+  v::DVec<3> rvec = currp - sm.center - sm.velo * (theta / smrad);
+  v::DVec<3> outp =
+      currp + sm.velo * alphat1 + v::cross3(sm.omega, rvec) * alphat2;
+  toret = toret.combine({outp, outp});
+  currp = p;
+  apply2Vec(currp, sm);
+  return toret.combine({currp, currp});
+}
 
 struct OBB {
   v::DVec<3> b, s, x, y, z; /// basically b+gx+hy+iz where 0<=g,h,i<=s
   v::DVec<3> a, c;
+
+  double tol = 1e-2;
 
   OBB() {}
   OBB(const v::DVec<3> &b, const v::DVec<3> &s, const v::DVec<3> &x,
@@ -94,7 +130,33 @@ struct OBB {
     v::DVec<2> ze = extremaAxis(2);
     return {{{xe[0], ye[0], ze[0]}, {xe[1], ye[1], ze[1]}}};
   }
-  // TODO: getAABB(ScrewM)
+  AABB getAABB(const ScrewM &sm) const {
+    // XXX: proper limits maybe?
+    if (v::norm2(sm.velo) < tol / 2 && v::norm2(sm.omega) < tol / 100) {
+      return getAABB();
+    }
+    return getArcAABB(b, sm, tol)
+        .combine(
+            getArcAABB(b + s[0] * x, sm, tol)
+                .combine(
+                    getArcAABB(b + s[1] * y, sm, tol)
+                        .combine(
+                            getArcAABB(b + s[0] * x + s[1] * y, sm, tol)
+                                .combine(
+                                    getArcAABB(b + s[2] * z, sm, tol)
+                                        .combine(
+                                            getArcAABB(b + s[0] * x + s[2] * z,
+                                                       sm, tol)
+                                                .combine(
+                                                    getArcAABB(b + s[1] * y +
+                                                                   s[2] * z,
+                                                               sm, tol)
+                                                        .combine(getArcAABB(
+                                                            b + s[0] * x +
+                                                                s[1] * y +
+                                                                s[2] * z,
+                                                            sm, tol))))))));
+  }
 
   /// constructs an obb with same x,y,z as *this but contains o
   OBB wrapOBB(const OBB &o) const {
@@ -175,4 +237,3 @@ struct OBB {
 } // namespace roller
 
 #endif // ROLLER_PHYSICS_OBB_HPP_
-
