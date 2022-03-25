@@ -11,11 +11,12 @@
 namespace roller {
 
 struct AuxPhysInfo {
-  v::DVec<3> velo; /// velocity
+  v::DVec<3> velo{0, 0, 0}; /// velocity
 
-  DMat3x3 rot;      /// rotation matrix
-  DMat3x3 riner;    /// I^{-1}(t)
-  v::DVec<3> omega; /// angular velocity
+  DMat3x3 rot{{0, 0, 0}, {0, 0, 0}, {0, 0, 0}};   /// rotation matrix
+  DMat3x3 riner{{0, 0, 0}, {0, 0, 0}, {0, 0, 0}}; /// I^{-1}(t)
+
+  v::DVec<3> omega{0, 0, 0}; /// angular velocity
 };
 
 struct PhysInfo {
@@ -60,6 +61,7 @@ struct CPhysInfo {
   PhysInfo pi;
   AuxPhysInfo aux;
 
+  CPhysInfo() {}
   CPhysInfo(const PhysInfo &pi) : pi(pi), aux(pi.getAuxInfo()) {}
   CPhysInfo(const PhysInfo &pi, const AuxPhysInfo &aux) : pi(pi), aux(aux) {}
 
@@ -87,7 +89,7 @@ struct CPhysInfo {
     double dv = dt * g;
     // gravity applies on z-axis
     pi.lm[2] -= dv * pi.mass;
-    if (updateA && pi.m) {
+    if (updateA && pi.mass) {
       aux.velo[2] -= dv;
     }
   }

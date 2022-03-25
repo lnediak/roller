@@ -15,14 +15,13 @@ AABB getArcAABB(const v::DVec<3> &p, const ScrewM &sm, double tol) {
   double smrad = std::sqrt(v::norm2(sm.omega));
   double alphat1 = alpha / smrad;
   double alphat2 = std::tan(alpha) / alpha;
-  v::Dvec<3> nomega = sm.omega / smrad;
   double theta = 0;
   v::DVec<3> currp = p;
   AABB toret = {p, p};
   while (theta + 2 * alpha < smrad) {
     v::DVec<3> rvec = currp - sm.center - sm.velo * (theta / smrad);
     v::DVec<3> outp =
-        currp + sm.velo * alphat1 + v::cross3(sm.omega, rvec) * alphat2;
+        currp + sm.velo * alphat1 + cross3(sm.omega, rvec) * alphat2;
     toret = toret.combine({outp, outp});
     theta += 2 * alpha;
     currp = p;
@@ -33,7 +32,7 @@ AABB getArcAABB(const v::DVec<3> &p, const ScrewM &sm, double tol) {
   alphat2 = std::tan(alpha) / alpha;
   v::DVec<3> rvec = currp - sm.center - sm.velo * (theta / smrad);
   v::DVec<3> outp =
-      currp + sm.velo * alphat1 + v::cross3(sm.omega, rvec) * alphat2;
+      currp + sm.velo * alphat1 + cross3(sm.omega, rvec) * alphat2;
   toret = toret.combine({outp, outp});
   currp = p;
   apply2Vec(currp, sm);

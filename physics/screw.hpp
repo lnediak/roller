@@ -15,6 +15,9 @@ struct ScrewM {
   v::DVec<3> center;
 
   ScrewM() : velo{0, 0, 0}, omega{0, 0, 0}, center{0, 0, 0} {}
+  ScrewM(const v::DVec<3> &velo, const v::DVec<3> &omega,
+         const v::DVec<3> &center)
+      : velo(velo), omega(omega), center(center) {}
 };
 
 ScrewM mult(double t, const ScrewM &pm) {

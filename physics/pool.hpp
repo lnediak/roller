@@ -22,7 +22,9 @@ template <class Entry> class Pool {
     }
     tz = osz;
     std::unique_ptr<Entry[]> aNew(new Entry[sz]);
-    std::memcpy(aNew.get(), a.get(), osz * sizeof(Entry));
+    for (std::size_t i = 0; i < osz; i++) {
+      aNew[i] = std::move(a[i]);
+    }
     a = std::move(aNew);
   }
 

@@ -3,6 +3,7 @@
 
 #include <vector>
 
+#include "contact.hpp"
 #include "obb.hpp"
 #include "pose.hpp"
 #include "screw.hpp"
@@ -11,13 +12,6 @@
 namespace roller {
 
 namespace ccd {
-
-struct Contact {
-  double t;     /// time of intersection
-  double d;     /// depth of penetration
-  v::DVec<3> p; /// contact point
-  v::DVec<3> n; /// contact normal (pointing towards first object)
-};
 
 double dmin(double a, double b) { return a > b ? b : a; }
 double dmax(double a, double b) { return a < b ? b : a; }

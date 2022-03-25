@@ -1,6 +1,7 @@
 #ifndef ROLLER_PHYSICS_PRISM_HPP_
 #define ROLLER_PHYSICS_PRISM_HPP_
 
+#include "ccd_narrow.hpp"
 #include "obb.hpp"
 #include "phys_info.hpp"
 
@@ -16,19 +17,39 @@ template <class Tag> struct Prism {
   Tag tag;
   bool meshed = false;
 
-  /// ds2 > 0, massi = 1 / mass
-  Prism(const v::DVec<3> &ds2, const v::DVec<3> &pos, double massi) : s2(ds2) {
+  Prism() : s2{0, 0, 0} {}
+
+  /// s2 > 0, massi = 1 / mass
+  Prism(const v::DVec<3> &s2, const v::DVec<3> &pos, double massi) : s2(s2) {
     pi.pose.p = pos;
     pi.massi = massi;
-    double xx = 1 / (s2[1] * s2[1] + s2[2] * s2[2]);
-    double yy = 1 / (s2[0] * s2[0] + s2[2] * s2[2]);
-    double zz = 1 / (s2[0] * s2[0] + s2[1] * s2[1]);
-    massi *= 3; // because s2 is already divided by 2
-    pi.ineri = {{xx * massi, 0, 0}, {0, yy * massi, 0}, {0, 0, zz * massi}};
+    if (pi.massi > 1e-12) {
+      double xx = s2[1] * s2[1] + s2[2] * s2[2];
+      double yy = s2[0] * s2[0] + s2[2] * s2[2];
+      double zz = s2[0] * s2[0] + s2[1] * s2[1];
+      double xxi = 1 / xx;
+      double yyi = 1 / yy;
+      double zzi = 1 / zz;
+      double tmp = pi.mass = 1 / massi;
+      tmp /= 3;
+      pi.iner = {{xx * tmp, 0, 0}, {0, yy * tmp, 0}, {0, 0, zz * tmp}};
+      tmp = massi * 3;
+      pi.ineri = {{xxi * tmp, 0, 0}, {0, yyi * tmp, 0}, {0, 0, zzi * tmp}};
+    }
+  }
+
+  Prism(const Prism &o) : s2(o.s2), pi(o.pi), doRender(o.doRender) {}
+  Prism &operator=(const Prism &o) {
+    s2 = o.s2;
+    pi = o.pi;
+    doRender = o.doRender;
+    meshed = false;
+    return *this;
   }
 
   void setPose(const Pose &pose) { pi.pose = pose; }
   PhysInfo getPhysInfo() const { return pi; }
+  v::DVec<3> getSurfaceDetail() const { return {1, 0.9, 0.1}; }
 
   OBB getOBB() const {
     DMat3x3 rott = pi.pose.toRotationMatrix().transpose();
@@ -43,14 +64,15 @@ template <class Tag> struct Prism {
   // Prim interface functions
   Pose getPose() const { return pi.pose; }
   AABB getAABB(const ScrewM &sm) const { return getOBB().getAABB(sm); }
-  Contact doCCD(double t1, double t2, const ScrewM &sm1, const Prism &prim2,
-                const ScrewM &sm2) const {
+  ccd::Contact doCCD(double t1, double t2, const ScrewM &sm1,
+                     const Prism &prim2, const ScrewM &sm2) const {
     Pose pose1 = getPose();
     pose1.p = pose1.toWorldCoords(-s2);
     Pose pose2 = prim2.getPose();
-    pose2.p = pose2.toWorldCoords(-pose2.s2);
+    pose2.p = pose2.toWorldCoords(-prim2.s2);
     // XXX: Add tolerance as an option
-    Contact toret = obbRot(pose1, 2 * s2, sm1, pose2, 2 * pose2.s2, sm2, 1e-2);
+    ccd::Contact toret =
+        ccd::obbRot(pose1, 2 * s2, sm1, pose2, 2 * prim2.s2, sm2, 1e-2);
     toret.t *= (t2 - t1);
     toret.t += t1;
     return toret;
@@ -61,6 +83,7 @@ template <class Tag> struct Prism {
     fun(&projMat[0]);
     if (meshed) {
       fun(tag);
+      return;
     }
     const Color c[] = {{0x00, 0x00, 0x00, 0xFF}, {0x22, 0x22, 0x22, 0xFF},
                        {0x44, 0x44, 0x44, 0xFF}, {0x66, 0x66, 0x66, 0xFF},
@@ -120,6 +143,7 @@ template <class Tag> struct Prism {
       fun(tag, 0, 0);
     }
     meshed = true;
+    fun(tag);
   }
 };
 

@@ -5,14 +5,15 @@
 #include <limits>
 #include <memory>
 #include <type_traits>
-#include <types>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
 
 #include "broad_phase.hpp"
+#include "contact.hpp"
 #include "phys_info.hpp"
 #include "pool.hpp"
+#include "screw.hpp"
 
 namespace roller {
 
@@ -34,6 +35,7 @@ template <class Indexable> void dllAddAllAfter(Indexable &p, int i, int ni) {
 template <class Indexable> void dllRemove(Indexable &p, int i) {
   p[p[i].previ].nexti = p[i].nexti;
   p[p[i].nexti].previ = p[i].previ;
+  p[i].previ = p[i].nexti = i;
 }
 template <class T> struct RetSame {
   T operator()(T t) const noexcept { return t; }
@@ -47,10 +49,12 @@ template <class Indexable,
           class T = decltype(std::declval<Fun>()(std::declval<Indexable>()[0]))>
 struct DllIterator {
   typedef std::ptrdiff_t difference_type;
-  typedef T value_type;
+  typedef typename std::remove_reference<T>::type value_type;
   typedef value_type *pointer;
   typedef value_type &reference;
   typedef std::bidirectional_iterator_tag iterator_category;
+
+  typedef DllIterator<Indexable, Fun, T> ThisType;
 
 private:
   Indexable *p;
@@ -65,27 +69,26 @@ public:
 
   reference operator*() { return fun((*p)[i]); }
   pointer operator->() { return &fun((*p)[i]); }
-  DllIterator<Indexable> &operator++() {
-    i = p[i].nexti;
+  ThisType &operator++() {
+    i = (*p)[i].nexti;
     return *this;
   }
-  DllIterator<Indexable> operator++(int) {
-    const DllIterator<Indexable> &toret = *this;
+  ThisType operator++(int) {
+    ThisType toret = *this;
     operator++();
     return toret;
   }
-  DllIterator<Indexable> &operator--() {
-    i = p[i].previ;
+  ThisType &operator--() {
+    i = (*p)[i].previ;
     return *this;
   }
-  DllIterator<Indexable> operator--(int) {
-    const DllIterator<Indexable> &toret = *this;
+  ThisType operator--(int) {
+    ThisType toret = *this;
     operator--();
     return toret;
   }
-  /// don't use this between different indexables please...
-  bool operator==(const DllIterator<Indexable> &o) const { return i == o.i; }
-  bool operator!=(const DllIterator<Indexable> &o) const { return i != o.i; }
+  bool operator==(const ThisType &o) const { return i == o.i; }
+  bool operator!=(const ThisType &o) const { return i != o.i; }
 };
 /// wraps a LegacyInputIterator with a function returning a reference
 template <
@@ -95,7 +98,7 @@ template <
         std::declval<typename std::iterator_traits<Iterator>::value_type &>()))>
 struct IteratorWrapper {
   typedef std::ptrdiff_t difference_type;
-  typedef T value_type;
+  typedef typename std::remove_reference<T>::type value_type;
   typedef value_type *pointer;
   typedef value_type &reference;
   typedef std::input_iterator_tag iterator_category;
@@ -104,6 +107,8 @@ private:
   Iterator i;
   Fun fun;
 
+  typedef IteratorWrapper<Iterator, Fun, T> ThisType;
+
 public:
   IteratorWrapper() {}
   IteratorWrapper(const Iterator &i) : i(i) {}
@@ -111,17 +116,17 @@ public:
 
   reference operator*() { return fun(*i); }
   pointer operator->() { return &fun(*i); }
-  decltype(*this) &operator++() {
+  ThisType &operator++() {
     ++i;
     return *this;
   }
-  decltype(*this) &operator++(int) {
+  ThisType &operator++(int) {
     const auto &toret = *this;
     ++i;
     return toret;
   }
-  bool operator==(const decltype(*this) &o) const { return i == o.i; }
-  bool operator!=(const decltype(*this) &o) const { return i != o.i; }
+  bool operator==(const ThisType &o) const { return i == o.i; }
+  bool operator!=(const ThisType &o) const { return i != o.i; }
 };
 
 /// df is the new center relative to the center of mass
@@ -189,7 +194,7 @@ combinedCPI(const Iterator &it, const Iterator &ite) {
   Pose getPose() const;
   AABB getAABB(const ScrewM &) const;
   // return contact time on same scale as t1 and t2 plz
-  Contact doCCD(double t1, double t2, ScrewM, const Prim &, ScrewM) const;
+  ccd::Contact doCCD(double t1, double t2, ScrewM, const Prim &, ScrewM) const;
 
   Obj template:
   void setPose(const Pose &, primIter);
@@ -236,7 +241,7 @@ template <class Prim, class Obj> class World {
   BroadPhaseAABBTree broad;
 
   struct Collision {
-    Contact c;        /// contact time in world time
+    ccd::Contact c;   /// contact time in world time
     int occobji;      /// other ccobji (cobji or -obji)
     int prim1, prim2; /// prim1 is for key, prim2 is for occobji
   };
@@ -263,10 +268,13 @@ public:
       std::is_same<typename std::iterator_traits<PrimIter>::value_type,
                    Prim>::value,
       int>::type
-  addObj(const CPhysInfo &cpi, PrimIter iter, const PrimIter &iter_end) {
+  addObj(const CPhysInfo &cpi, Obj &&obj, PrimIter iter,
+         const PrimIter &iter_end) {
     int obji = objs.mkNew();
+    objs[obji].obj = obj;
     objs[obji].cpi = cpi;
     objs[obji].cobji = -obji;
+    objs[obji].previ = objs[obji].nexti = obji;
     dllAddAfter(objs, 0, obji);
     int primi = prims.mkNew();
     objs[obji].primi = primi;
@@ -281,6 +289,7 @@ public:
         break;
       }
       int tprimi = prims.mkNew();
+      prims[tprimi].previ = prims[tprimi].nexti = tprimi;
       dllAddAfter(prims, primi, tprimi);
       primi = tprimi;
     }
@@ -357,26 +366,27 @@ private:
       int>::type
   addCObj(const Iterator &it, const Iterator &ite) {
     int cobji = cobjs.mkNew();
+    cobjs[cobji].previ = cobjs[cobji].nexti = cobji;
     dllAddAfter(cobjs, 0, cobji);
     struct GetCPI {
       Pool<ObjEntry> *objs;
       CPhysInfo &operator()(int i) const { return (*objs)[i].cpi; }
     } fun{&objs};
-    cobjs[cobji].cpi = combinedCPI(IteratorWrapper<Iterator, GetCPI>(it, fun),
-                                   IteratorWrapper<Iterator, GetCPI>(ite, fun));
+    cobjs[cobji].cpi =
+        combinedCPI(IteratorWrapper<Iterator, GetCPI &>(it, fun),
+                    IteratorWrapper<Iterator, GetCPI &>(ite, fun));
     for (Iterator o = it; o != ite; ++o) {
       objs[*o].cobji = cobji;
       objs[*o].relP = objs[*o].cpi.pi.pose;
       objs[*o].relP.p -= cobjs[cobji].cpi.pi.pose.p; // a.k.a. center of mass
     }
     int obji = *it;
-    objs[obji].nexti = obji;
-    objs[obji].previ = obji;
+    dllRemove(objs, obji); // obji becomes a length-1 dll from this
     Iterator o = it;
     ++o;
     for (; o != ite; ++o) {
       // btw this ends up putting the objects in reverse order lol
-      dllRemove(*o);
+      dllRemove(objs, *o);
       dllAddAfter(objs, obji, *o);
     }
     cobjs[cobji].obji = obji;
@@ -385,18 +395,18 @@ private:
   /// for exactly two objects
   int addCObj(int obji1, int obji2) {
     int objis[2] = {obji1, obji2};
-    return addCObj(objis, objis + 2);
+    return addCObj(objis + 0, objis + 2);
   }
   void addObjToCObj(int cobji, int obji) {
-    int cpis[2] = {cobjs[cobji].cpi, objs[obji].cpi};
-    CPhysInfo ncpi = combinedCPI(cpis, cpis + 2);
+    CPhysInfo cpis[2] = {cobjs[cobji].cpi, objs[obji].cpi};
+    CPhysInfo ncpi = combinedCPI(cpis + 0, cpis + 2);
     ncpi.pi.pose.q = cobjs[cobji].cpi.pi.pose.q;
     v::DVec<3> transl = ncpi.pi.pose.p - cobjs[cobji].cpi.pi.pose.p;
     cobjs[cobji].cpi = ncpi;
     int oi = cobjs[cobji].obji;
     int toi = oi;
     do {
-      objs[toi].relP -= transl;
+      objs[toi].relP.p -= transl;
       toi = objs[toi].nexti;
     } while (toi != oi);
     dllRemove(objs, obji);
@@ -409,14 +419,15 @@ private:
       typedef Pose return_type;
       return_type &operator()(ObjEntry &e) const { return e.relP; }
     };
-    CPhysInfo ncpi = combinedCPI(cobjs[cobji1].cpi, cobjs[cobji2].cpi);
+    CPhysInfo cpis[2] = {cobjs[cobji1].cpi, cobjs[cobji2].cpi};
+    CPhysInfo ncpi = combinedCPI(cpis + 0, cpis + 2);
     ncpi.pi.pose.q = cobjs[cobji1].cpi.pi.pose.q;
     v::DVec<3> transl = ncpi.pi.pose.p - cobjs[cobji1].cpi.pi.pose.p;
     cobjs[cobji1].cpi = ncpi;
     int oi = cobjs[cobji1].obji;
     int toi = oi;
     do {
-      objs[toi].relP -= transl;
+      objs[toi].relP.p -= transl;
       toi = objs[toi].nexti;
     } while (toi != oi);
     Pose shiftP = ncpi.pi.pose.fromWorldCoords(cobjs[cobji2].cpi.pi.pose);
@@ -429,7 +440,7 @@ private:
       toi = objs[toi].nexti;
     } while (toi != oi);
     dllAddAllAfter(objs, cobjs[cobji1].obji, cobjs[cobji2].obji);
-    dllRemove(cobji2);
+    dllRemove(cobjs, cobji2);
     cobjs.rem(cobji2);
     return cobji1;
   }
@@ -493,12 +504,12 @@ private:
     ScrewM sm1 = getScrewM(tcpi1);
     CPhysInfo tcpi2 = getCCObjCPI(ccobji2);
     ScrewM sm2 = getScrewM(tcpi2);
-    Contact con = prims[primi1].prim.doCCD(
+    ccd::Contact con = prims[primi1].prim.doCCD(
         time, ccdIntE, getScrewM(tcpi1), prims[primi2].prim, getScrewM(tcpi2));
     if (con.t >= ccdIntE) {
       return;
     }
-    int gccobji = getCCObj(1);
+    int gccobji = objs[1].cobji;
     // XXX: I'm pretty sure this doesn't work as intended
     if (doC && ((ccobji1 == gccobji && isSmol(sm2)) ||
                 (ccobji2 == gccobji && isSmol(sm1)))) {
@@ -556,7 +567,7 @@ private:
         collisions.erase(occobji);
       }
     } else {
-      coli1 = collisions.insert(ccobji1, Collision());
+      coli1 = collisions.emplace(ccobji1, Collision()).first;
     }
     if (coli2 != collisions.end()) {
       int occobji = coli2->second.occobji;
@@ -564,11 +575,11 @@ private:
         collisions.erase(occobji);
       }
     } else {
-      coli2 = collisions.insert(ccobji2, Collision());
+      coli2 = collisions.emplace(ccobji2, Collision()).first;
     }
     coli1->second.c = coli2->second.c = con;
-    coli1->second.prim1 = coli2->second.prim2 = prim1;
-    coli2->second.prim1 = coli1->second.prim2 = prim2;
+    coli1->second.prim1 = coli2->second.prim2 = primi1;
+    coli2->second.prim1 = coli1->second.prim2 = primi2;
     coli1->second.occobji = ccobji2;
     coli2->second.occobji = ccobji1;
   }
@@ -596,10 +607,11 @@ private:
 public:
   template <class Fun>
   typename std::enable_if<std::is_same<
-      v::DVec<3>, decltype(std::declval<Fun>()(0, CPhysInfo(), 0,
-                                               CPhysInfo()))>::value>::type
+      v::DVec<3>, decltype(std::declval<Fun>()(
+                      ccd::Contact(), std::declval<Prim>(), CPhysInfo(),
+                      std::declval<Prim>(), CPhysInfo()))>::value>::type
   step(double dt, Fun &&calculateImpulse) {
-    for (int toi = objs[0].nexti; toi; toi = objs[toi].nexti;) {
+    for (int toi = objs[0].nexti; toi; toi = objs[toi].nexti) {
       CPhysInfo tmp = objs[toi].cpi;
       tmp.stepVelo<true>(dt, g);
       updateObj(tmp, toi);
@@ -612,14 +624,13 @@ public:
         updateAllAABBs<false>(toi, {});
         toi = objs[toi].nexti;
       } while (toi != oi);
-      for (toi = objs[0].nexti; toi; toi = objs[toi].nexti;) {
+      for (toi = objs[0].nexti; toi; toi = objs[toi].nexti) {
         updateAllAABBs<true>(toi, getScrewM(objs[toi].cpi));
       }
     } else {
       updateAllAABBs<false>(1, {});
-      for (int toi = objs[0].nexti; toi; toi = objs[toi].nexti;) {
+      for (int toi = objs[0].nexti; toi; toi = objs[toi].nexti) {
         if (toi == 1) {
-          toi = objs[toi].nexti;
           continue;
         }
         updateAllAABBs<true>(toi, getScrewM(objs[toi].cpi));
@@ -637,8 +648,8 @@ public:
       for (auto it = collisions.begin(), ite = citer; it != ite; ++it) {
         if (it->second.c.t < ctime) {
           citer = it;
-          ctime = e.second.c.t;
-          ccobji = e.first;
+          ctime = it->second.c.t;
+          ccobji = it->first;
         }
       }
       Collision col = citer->second;
@@ -647,18 +658,19 @@ public:
       collisions.erase(occobji);
 
       double adt = ctime - time;
-      for (int tobji = objs[0].nexti; tobji; tobji = objs[tobji].nexti;) {
+      for (int tobji = objs[0].nexti; tobji; tobji = objs[tobji].nexti) {
         CPhysInfo tmp = objs[tobji].cpi;
         tmp.stepTime<true>(adt);
         updateObj(tmp, tobji);
       }
-      for (int tcobji = cobjs[0].nexti; tcobji; tcobji = cobjs[tcobji].nexti;) {
+      for (int tcobji = cobjs[0].nexti; tcobji; tcobji = cobjs[tcobji].nexti) {
         CPhysInfo tmp = cobjs[tcobji].cpi;
         tmp.stepTime<true>(adt);
         updateCObj(tmp, tcobji);
       }
-      v::DVec<3> imp = calculateImpulse(col.c, col.prim1, getCCObjCPI(ccobji),
-                                        col.prim2, getCCObjCPI(occobji));
+      v::DVec<3> imp =
+          calculateImpulse(col.c, prims[col.prim1].prim, getCCObjCPI(ccobji),
+                           prims[col.prim2].prim, getCCObjCPI(occobji));
       int obji1 = prims[col.prim1].obji;
       int obji2 = prims[col.prim2].obji;
       objs[obji1].cpi.pi.lm += imp;
@@ -691,6 +703,25 @@ public:
       int tmp = cobjs[tcobji].nexti;
       breakCObj(tcobji);
       tcobji = tmp;
+    }
+  }
+
+  template <class Fun> void applyToPrims(Fun &&fun) {
+    for (int obji = objs[0].nexti; obji; obji = objs[obji].nexti) {
+      int primi = objs[obji].primi;
+      do {
+        fun(prims[primi].prim);
+      } while (primi != objs[obji].primi);
+    }
+    for (int cobji = cobjs[0].nexti; cobji; cobji = cobjs[cobji].nexti) {
+      int obji = cobjs[cobji].obji;
+      do {
+        int primi = objs[obji].primi;
+        do {
+          fun(prims[primi].prim);
+        } while (primi != objs[obji].primi);
+        obji = objs[obji].nexti;
+      } while (obji != cobjs[cobji].obji);
     }
   }
 };
