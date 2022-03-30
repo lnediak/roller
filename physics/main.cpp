@@ -43,17 +43,17 @@ int main() {
   glCullFace(GL_BACK);
   glFrontFace(GL_CCW);
 
-  roller::SliceDirs sd = {{0, -20, 0}, {1, 0, 0}, {0, 0, 1}, {0, 1, 0},
-                          1.5,         1.5,       256};
+  roller::SliceDirs sd = {{18, 8, -10}, {0, 1, 0}, {0, 0, 1}, {-1, 0, 0},
+                          1.5,          1.5,       256};
   typedef roller::GenericPrimWrapper<roller::Prism<GLMesh>> PrimType;
   roller::World<PrimType, roller::GenericObj> world(9.81, 0.02);
   PrimType groundPrims[] = {
-      {{v::DVec<3>{20, 1, 30}, v::DVec<3>{0, -10, 0}, 0}},
-      {{v::DVec<3>{20, 1, 30}, v::DVec<3>{0, 10, 0}, 0}},
-      {{v::DVec<3>{20, 10, 1}, v::DVec<3>{0, 0, -30}, 0}},
-      {{v::DVec<3>{20, 10, 1}, v::DVec<3>{0, 0, 30}, 0}},
-      {{v::DVec<3>{1, 10, 30}, v::DVec<3>{-20, 0, 0}, 0}},
-      {{v::DVec<3>{1, 10, 30}, v::DVec<3>{20, 0, 0}, 0}},
+      {{v::DVec<3>{20, 1, 20}, v::DVec<3>{0, -10, 0}, 0}},
+      {{v::DVec<3>{20, 1, 20}, v::DVec<3>{0, 10, 0}, 0}},
+      {{v::DVec<3>{20, 10, 1}, v::DVec<3>{0, 0, -20}, 0}},
+      {{v::DVec<3>{20, 10, 1}, v::DVec<3>{0, 0, 20}, 0}},
+      {{v::DVec<3>{1, 10, 20}, v::DVec<3>{-20, 0, 0}, 0}},
+      {{v::DVec<3>{1, 10, 20}, v::DVec<3>{20, 0, 0}, 0}},
   };
   groundPrims[0].doRender = false;
   const std::size_t groundPrimsLen = sizeof(groundPrims) / sizeof(PrimType);
@@ -63,12 +63,14 @@ int main() {
   world.addObj(cpiTmp, std::move(groundObjTmp), groundPrims + 0,
                groundPrims + groundPrimsLen);
   PrimType prims[] = {
-      {{v::DVec<3>{1, 1, 2}, v::DVec<3>{0, 0, 5}, 0}},
-      {{v::DVec<3>{1, 1, 2}, v::DVec<3>{0, 0, -5}, 0}},
+      {{v::DVec<3>{1, 1, 2}, v::DVec<3>{0, 0, 5}, 1}},
+      {{v::DVec<3>{1, 1, 2}, v::DVec<3>{0, 0, -5}, 1}},
   };
   const std::size_t primsLen = sizeof(prims) / sizeof(PrimType);
   for (std::size_t i = 0; i < primsLen; i++) {
     roller::GenericObj tmpObj(prims + i, prims + i + 1, cpiTmp);
+    cpiTmp.pi.lm[2] = i * 5;
+    cpiTmp.updateAux();
     world.addObj(cpiTmp, std::move(tmpObj), prims + i, prims + i + 1);
   }
 

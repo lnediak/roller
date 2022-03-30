@@ -699,6 +699,19 @@ public:
             }
           });
     }
+    double adt = dt - time;
+    if (adt > 0) {
+      for (int tobji = objs[0].nexti; tobji; tobji = objs[tobji].nexti) {
+        CPhysInfo tmp = objs[tobji].cpi;
+        tmp.stepTime<true>(adt);
+        updateObj(tmp, tobji);
+      }
+      for (int tcobji = cobjs[0].nexti; tcobji; tcobji = cobjs[tcobji].nexti) {
+        CPhysInfo tmp = cobjs[tcobji].cpi;
+        tmp.stepTime<true>(adt);
+        updateCObj(tmp, tcobji);
+      }
+    }
     for (int tcobji = cobjs[0].nexti; tcobji;) {
       int tmp = cobjs[tcobji].nexti;
       breakCObj(tcobji);
@@ -711,6 +724,7 @@ public:
       int primi = objs[obji].primi;
       do {
         fun(prims[primi].prim);
+        primi = prims[primi].nexti;
       } while (primi != objs[obji].primi);
     }
     for (int cobji = cobjs[0].nexti; cobji; cobji = cobjs[cobji].nexti) {
@@ -719,6 +733,7 @@ public:
         int primi = objs[obji].primi;
         do {
           fun(prims[primi].prim);
+          primi = prims[primi].nexti;
         } while (primi != objs[obji].primi);
         obji = objs[obji].nexti;
       } while (obji != cobjs[cobji].obji);
