@@ -263,10 +263,10 @@ struct RotState {
 
 #ifndef OBBROT_MAX_LVLS
 // 1 means no subdividing, 2 means subdividing once in the middle, etc.
-#define OBBROT_MAX_LVLS 7
+#define OBBROT_MAX_LVLS 15
 #endif
 // because we have to calculate using the orientation in the middle of the arc
-#define OBBROT_MAX_SUBDIV (1 << OBBROT_MAX_LVLS)
+#define OBBROT_MAX_SUBDIV 32768 // (1 << OBBROT_MAX_LVLS)
 
 void setOBBOrientation(const Pose &pose, OBB &obb) {
   DMat3x3 ro = pose.toRotationMatrix().transpose();
@@ -420,9 +420,8 @@ Contact obbRot(const Pose &p, const v::DVec<3> &ps, const ScrewM &pm,
     if (contact.t <= 1) {
       double tmp1 = w1n * timedivf;
       double tmp2 = w2n * timedivf;
-      // sum here (also the 2*) is fat overestimate, but why not
-      double errpt = 2 * (tmp1 * v::sum(obb1.s) + errp);
-      double errqt = 2 * (tmp2 * v::sum(obb2.s) + errq);
+      double errpt = tmp1 * 2 * v::max(obb1.s) + errp;
+      double errqt = tmp2 * 2 * v::max(obb2.s) + errq;
       if ((errpt < tol && errqt < tol) ||
           (subdivm.lvl + 1 >= OBBROT_MAX_LVLS)) {
         contact.t *= timedivf;

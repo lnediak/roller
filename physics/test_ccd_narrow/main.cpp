@@ -66,13 +66,14 @@ double getTime(const OBB &p, const ScrewM &pm, const OBB &q, const ScrewM &qm,
   return 1.0001;
 }
 
-int testRot(int numIters, int hpthresh, int stupidthresh) {
+int testRot(int numIters, int printfreq, int hpthresh, int stupidthresh) {
   std::uniform_real_distribution<> distro(-10, 10);
-  std::uniform_real_distribution<> smol(-0.05, 0.05);
+  std::uniform_real_distribution<> smol(-0.9, 0.9);
   std::uniform_real_distribution<> pdistro(0, 10);
+  int numFails = 0;
   for (int spam = 0; spam < numIters; spam++) {
     std::mt19937 mtrand(spam);
-    if (spam % 1000 == 0) {
+    if (spam % printfreq == 0) {
       std::cout << "Iteration #" << spam << std::endl;
     }
     Pose pp;
@@ -109,16 +110,11 @@ int testRot(int numIters, int hpthresh, int stupidthresh) {
     if (res1 > 1) {
       res1 = 1.0001;
     }
-    double res2 = res1;
     double dt = 0.01;
-    double dttol = 0.03;
     if (spam < hpthresh) {
       dt = 0.001;
-      dttol = 0.02;
     }
-    if (spam < stupidthresh) {
-      res2 = getTime(p, pm, q, qm, dt);
-    }
+    bool pass = true;
 
     /*
     OBB spamp = p;
@@ -136,16 +132,23 @@ int testRot(int numIters, int hpthresh, int stupidthresh) {
     apply(op, mult(res1, pm));
     OBB oq = q;
     apply(oq, mult(res1, qm));
-    op.a -= 0.01;
-    op.c += 0.01;
-    oq.a -= 0.01;
-    oq.c += 0.01;
-    double df = res1 > res2 ? res1 - res2 : res2 - res1;
+    op.a -= 1e-2;
+    op.c += 1e-2;
+    oq.a -= 1e-2;
+    oq.c += 1e-2;
+    if (spam < stupidthresh) {
+      if (res1 > 1) {
+        double res2 = getTime(p, pm, q, qm, dt);
+        pass = res2 > 1;
+      } else {
+        pass = stupidOBBInt(op, oq);
+      }
+    }
     bool kekis =
         res1 != 0 && res1 <= 1 && (!op.isIn(resc.p) || !oq.isIn(resc.p));
-    if (df >= dttol || kekis) {
-      if (res1 <= 1 && res2 >= 1 && !kekis) {
-        std::cout << "false positive..." << std::endl;
+    if (!pass || kekis) {
+      if (res1 <= 1 && !kekis) {
+        std::cout << "false positive?" << std::endl;
         continue;
       }
       std::cout << op.b << op.s << op.x << op.y << op.z << op.a << op.c
@@ -160,29 +163,25 @@ int testRot(int numIters, int hpthresh, int stupidthresh) {
       Pose qp1 = qp;
       apply2Pose(pp1, mult(res1, pm));
       apply2Pose(qp1, mult(res1, qm));
-      Pose pp2 = pp;
-      Pose qp2 = qp;
-      apply2Pose(pp2, mult(res2, pm));
-      apply2Pose(qp2, mult(res2, qm));
       std::cout << pp1.p << pp1.q << std::endl;
       std::cout << qp1.p << qp1.q << std::endl;
-      std::cout << pp2.p << pp2.q << std::endl;
-      std::cout << qp2.p << qp2.q << std::endl;
       std::cout << resc.p << resc.d << " " << resc.n << std::endl;
 
       std::cerr << "FAIL!" << std::endl;
       std::cerr << "Iteration #" << spam << std::endl;
       std::cerr << "obbRot result: " << res1 << std::endl;
-      std::cerr << "stupid result: " << res2 << std::endl;
+      std::cerr << "kekis: " << kekis << std::endl;
       std::cerr << "pp.p, pp.q: " << pp.p << pp.q << std::endl;
       std::cerr << "qp.p, qp.q: " << qp.p << qp.q << std::endl;
       std::cerr << "ps, qs: " << p.s << q.s << std::endl;
       std::cerr << "pv, pc, omega1: " << pv << pc << omega1 << std::endl;
       std::cerr << "qv, qc, omega2: " << qv << qc << omega2 << std::endl;
-      return 1;
+      // return 1;
+      numFails++;
     }
   }
-  return 0;
+  std::cout << "numFails: " << numFails << std::endl;
+  return numFails > 0;
 }
 int testIntervalInt() {
   struct BasicTest {
@@ -321,5 +320,5 @@ int testLinear(int numIters, int hpthresh, int stupidthresh) {
 int main() {
   // return testIntervalInt();
   // return testLinear(1e6, 1e3, 1e5);
-  return testRot(1e5, 1e4, 1e5);
+  return testRot(1e7, 1e5, 1e5, 1e6);
 }
