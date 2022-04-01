@@ -49,7 +49,7 @@ template <class Tag> struct Prism {
 
   void setPose(const Pose &pose) { pi.pose = pose; }
   PhysInfo getPhysInfo() const { return pi; }
-  v::DVec<3> getSurfaceDetail() const { return {1, 0.9, 0.1}; }
+  v::DVec<3> getSurfaceDetail() const { return {0.5, 0.9, 0.1}; }
 
   OBB getOBB() const {
     DMat3x3 rott = pi.pose.toRotationMatrix().transpose();
@@ -70,9 +70,13 @@ template <class Tag> struct Prism {
     pose1.p = pose1.toWorldCoords(-s2);
     Pose pose2 = prim2.getPose();
     pose2.p = pose2.toWorldCoords(-prim2.s2);
+    if (t1 >= 1e-5) {
+      apply2Pose(pose1, mult(t1, sm1));
+      apply2Pose(pose2, mult(t2, sm2));
+    }
     // XXX: Add tolerance as an option
-    ccd::Contact toret =
-        ccd::obbRot(pose1, 2 * s2, sm1, pose2, 2 * prim2.s2, sm2, 1e-2);
+    ccd::Contact toret = ccd::obbRot(pose1, 2 * s2, mult(t2 - t1, sm1), pose2,
+                                     2 * prim2.s2, mult(t2 - t1, sm2), 1e-2);
     toret.t *= (t2 - t1);
     toret.t += t1;
     return toret;

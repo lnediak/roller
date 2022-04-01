@@ -43,17 +43,17 @@ int main() {
   glCullFace(GL_BACK);
   glFrontFace(GL_CCW);
 
-  roller::SliceDirs sd = {{18, 8, -10}, {0, 1, 0}, {0, 0, 1}, {-1, 0, 0},
+  roller::SliceDirs sd = {{0, -12, -8}, {1, 0, 0}, {0, 0, 1}, {0, 1, 0},
                           1.5,          1.5,       256};
   typedef roller::GenericPrimWrapper<roller::Prism<GLMesh>> PrimType;
   roller::World<PrimType, roller::GenericObj> world(9.81, 0.02);
   PrimType groundPrims[] = {
-      {{v::DVec<3>{20, 1, 20}, v::DVec<3>{0, -10, 0}, 0}},
-      {{v::DVec<3>{20, 1, 20}, v::DVec<3>{0, 10, 0}, 0}},
-      {{v::DVec<3>{20, 10, 1}, v::DVec<3>{0, 0, -20}, 0}},
-      {{v::DVec<3>{20, 10, 1}, v::DVec<3>{0, 0, 20}, 0}},
-      {{v::DVec<3>{1, 10, 20}, v::DVec<3>{-20, 0, 0}, 0}},
-      {{v::DVec<3>{1, 10, 20}, v::DVec<3>{20, 0, 0}, 0}},
+      {{v::DVec<3>{10, 1, 10}, v::DVec<3>{0, -5, 0}, 0}},
+      {{v::DVec<3>{10, 1, 10}, v::DVec<3>{0, 5, 0}, 0}},
+      {{v::DVec<3>{10, 5, 1}, v::DVec<3>{0, 0, -10}, 0}},
+      {{v::DVec<3>{10, 5, 1}, v::DVec<3>{0, 0, 10}, 0}},
+      {{v::DVec<3>{1, 5, 10}, v::DVec<3>{-10, 0, 0}, 0}},
+      {{v::DVec<3>{1, 5, 10}, v::DVec<3>{10, 0, 0}, 0}},
   };
   groundPrims[0].doRender = false;
   const std::size_t groundPrimsLen = sizeof(groundPrims) / sizeof(PrimType);
