@@ -92,7 +92,7 @@ v::DVec<3> genericImpulseCalc(const ccd::Contact &con, const Prim &ap,
   }
   if (con.d > 1e-2) {
     // penalty, should never happen
-    imp += 1e-3 * normal;
+    imp += 2e-2 * normal;
   }
   return imp;
 }

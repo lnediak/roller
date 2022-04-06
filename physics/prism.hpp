@@ -49,7 +49,7 @@ template <class Tag> struct Prism {
 
   void setPose(const Pose &pose) { pi.pose = pose; }
   PhysInfo getPhysInfo() const { return pi; }
-  v::DVec<3> getSurfaceDetail() const { return {0.5, 0.9, 0.1}; }
+  v::DVec<3> getSurfaceDetail() const { return {0.5, 0, 0}; }
 
   OBB getOBB() const {
     DMat3x3 rott = pi.pose.toRotationMatrix().transpose();

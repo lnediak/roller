@@ -43,10 +43,13 @@ int main() {
   glCullFace(GL_BACK);
   glFrontFace(GL_CCW);
 
-  roller::SliceDirs sd = {{0, -12, -8}, {1, 0, 0}, {0, 0, 1}, {0, 1, 0},
+  /*roller::SliceDirs sd = {
+      {0, -10, 5}, {1, 0, 0}, {0, 0.7071, 0.7071}, {0, 0.7071, -0.7071}, 1.5,
+      1.5,         256};*/
+  roller::SliceDirs sd = {{0, -10, -8}, {1, 0, 0}, {0, 0, 1}, {0, 1, 0},
                           1.5,          1.5,       256};
   typedef roller::GenericPrimWrapper<roller::Prism<GLMesh>> PrimType;
-  roller::World<PrimType, roller::GenericObj> world(9.81, 0.02);
+  roller::World<PrimType, roller::GenericObj> world(9.81, 0.02, 8);
   PrimType groundPrims[] = {
       {{v::DVec<3>{10, 1, 10}, v::DVec<3>{0, -5, 0}, 0}},
       {{v::DVec<3>{10, 1, 10}, v::DVec<3>{0, 5, 0}, 0}},

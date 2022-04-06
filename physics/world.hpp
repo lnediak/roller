@@ -221,13 +221,15 @@ template <class Prim, class Obj> class World {
     Pose relP; /// cobji>0?cobjs[cobji].cpi.pi.pose.fromWorldCoords(cpi.pi.pose)
     int primi; /// index of one of the primitives this object contains
     int cobji; /// the index of the cobj this is in, or else -(this's index)
+    int numCols; /// cobji<0? # of collisions this obj has had in this step
     /// dllist of either independent objs or all objs in same cobj
     int nexti;
     int previ;
   };
   struct CObjEntry {
     CPhysInfo cpi;
-    int obji; /// the index of one of the objects this contains
+    int obji;    /// the index of one of the objects this contains
+    int numCols; /// # of collisions this exact cobj has had in this step
     /// doubly linked list for all coalesced objects
     int nexti;
     int previ;
@@ -250,11 +252,13 @@ template <class Prim, class Obj> class World {
   /// objects coalesced with the ground; includes the ground (1)
   std::unordered_set<int> groundCoal;
 
-  double g;   // acceleration of gravity in negative z
-  double pad; // aabb padding
+  double g;          // acceleration of gravity in negative z
+  double pad;        // aabb padding
+  int numColsThresh; // maximum collisions for each specific object per step
 
 public:
-  World(double g, double pad) : g(g), pad(pad) {
+  World(double g, double pad, int numColsThresh)
+      : g(g), pad(pad), numColsThresh(numColsThresh) {
     objs.mkNew(); // should be 0
     objs[0].cobji = objs[0].nexti = objs[0].previ = 0;
     cobjs.mkNew(); // should be 0
@@ -274,6 +278,7 @@ public:
     objs[obji].obj = obj;
     objs[obji].cpi = cpi;
     objs[obji].cobji = -obji;
+    objs[obji].numCols = 0;
     objs[obji].previ = objs[obji].nexti = obji;
     dllAddAfter(objs, 0, obji);
     int primi = prims.mkNew();
@@ -317,6 +322,7 @@ public:
       dllRemove(objs, toi);
       dllAddAfter(objs, 0, toi);
       objs[toi].cobji = -toi;
+      objs[toi].numCols = 0;
       toi = tmp;
     } while (toi != oi);
     dllRemove(cobjs, cobji);
@@ -366,6 +372,7 @@ private:
       int>::type
   addCObj(const Iterator &it, const Iterator &ite) {
     int cobji = cobjs.mkNew();
+    cobjs[cobji].numCols = 0;
     cobjs[cobji].previ = cobjs[cobji].nexti = cobji;
     dllAddAfter(cobjs, 0, cobji);
     struct GetCPI {
@@ -403,6 +410,7 @@ private:
     ncpi.pi.pose.q = cobjs[cobji].cpi.pi.pose.q;
     v::DVec<3> transl = ncpi.pi.pose.p - cobjs[cobji].cpi.pi.pose.p;
     cobjs[cobji].cpi = ncpi;
+    cobjs[cobji].numCols = 0;
     int oi = cobjs[cobji].obji;
     int toi = oi;
     do {
@@ -424,6 +432,7 @@ private:
     ncpi.pi.pose.q = cobjs[cobji1].cpi.pi.pose.q;
     v::DVec<3> transl = ncpi.pi.pose.p - cobjs[cobji1].cpi.pi.pose.p;
     cobjs[cobji1].cpi = ncpi;
+    cobjs[cobji1].numCols = 0;
     int oi = cobjs[cobji1].obji;
     int toi = oi;
     do {
@@ -461,6 +470,9 @@ private:
 
   CPhysInfo getCCObjCPI(int ccobji) const {
     return ccobji < 0 ? objs[-ccobji].cpi : cobjs[ccobji].cpi;
+  }
+  int &getCCObjNumCols(int ccobji) {
+    return ccobji < 0 ? objs[-ccobji].numCols : cobjs[ccobji].numCols;
   }
 
   static bool isSmol(const ScrewM &sm) {
@@ -548,10 +560,10 @@ private:
       }
       return;
     }
-    // note that these do not affect the aux, so updateAux is not necessary
-    tcpi1.pi.pose.p += (con.t - time) * sm1.velo;
-    tcpi2.pi.pose.p += (con.t - time) * sm2.velo;
-    // XXX: angular velocity here is approx
+    apply2Pose(tcpi1.pi.pose, mult(con.t - time, sm1));
+    apply2Pose(tcpi2.pi.pose, mult(con.t - time, sm2));
+    tcpi1.updateAuxRot();
+    tcpi2.updateAuxRot();
     v::DVec<3> urel = tcpi1.getVelocity(con.p) - tcpi2.getVelocity(con.p);
     if (v::dot(urel, con.n) > 0) {
       return;
@@ -602,6 +614,20 @@ private:
       }
       tprimi = prims[tprimi].nexti;
     } while (tprimi != primi);
+  }
+  template <bool doPad> void updateCObjAABBs(int cobji, const ScrewM &sm) {
+    int toi = cobjs[cobji].obji;
+    do {
+      updateAllAABBs<doPad>(toi, sm);
+      toi = objs[toi].nexti;
+    } while (toi != cobjs[cobji].obji);
+  }
+  template <bool doPad> void updateCCObjAABBs(int ccobji, const ScrewM &sm) {
+    if (ccobji > 0) {
+      updateCObjAABBs<doPad>(ccobji, sm);
+    } else {
+      updateAllAABBs<doPad>(-ccobji, sm);
+    }
   }
 
 public:
@@ -679,25 +705,42 @@ public:
       objs[obji2].cpi.pi.am -= cross3(col.c.p - objs[obji2].cpi.pi.pose.p, imp);
       objs[obji1].cpi.updateAux();
       objs[obji2].cpi.updateAux();
+      int &numCols1 = ++getCCObjNumCols(ccobji);
+      int &numCols2 = ++getCCObjNumCols(occobji);
 
-      int ncobji = mergeCCObjs(ccobji, occobji);
-      time = ctime;
-      if (ncobji != objs[1].cobji) {
-        ScrewM sm = getScrewM(cobjs[ncobji].cpi);
-        int oi = cobjs[ncobji].obji;
-        int toi = oi;
-        do {
-          updateAllAABBs<true>(toi, sm);
-          toi = objs[toi].nexti;
-        } while (toi != oi);
+      if (numCols1 >= numColsThresh || numCols2 >= numColsThresh) {
+        int ncobji = mergeCCObjs(ccobji, occobji);
+        time = ctime;
+        if (ncobji != objs[1].cobji) {
+          ScrewM sm = getScrewM(cobjs[ncobji].cpi);
+          updateCObjAABBs<true>(ncobji, sm);
+        }
+        broad.exportInts(
+            [this, time, dt, ncobji](int primi1, int primi2) -> void {
+              if (objs[prims[primi1].obji].cobji == ncobji ||
+                  objs[prims[primi2].obji].cobji == ncobji) {
+                checkCollision<false>(time, dt, primi1, primi2);
+              }
+            });
+      } else {
+        if (ccobji != objs[1].cobji) {
+          ScrewM sm = getScrewM(ccobji);
+          updateCCObjAABBs<true>(ccobji, sm);
+        }
+        if (occobji != objs[1].cobji) {
+          ScrewM sm = getScrewM(occobji);
+          updateCCObjAABBs<true>(occobji, sm);
+        }
+        broad.exportInts(
+            [this, time, dt, ccobji, occobji](int primi1, int primi2) -> void {
+              int tmp1 = objs[prims[primi1].obji].cobji;
+              int tmp2 = objs[prims[primi2].obji].cobji;
+              if (tmp1 == ccobji || tmp1 == occobji || tmp2 == ccobji ||
+                  tmp2 == occobji) {
+                checkCollision<false>(time, dt, primi1, primi2);
+              }
+            });
       }
-      broad.exportInts(
-          [this, time, dt, ncobji](int primi1, int primi2) -> void {
-            if (objs[prims[primi1].obji].cobji == ncobji ||
-                objs[prims[primi2].obji].cobji == ncobji) {
-              checkCollision<false>(time, dt, primi1, primi2);
-            }
-          });
     }
     double adt = dt - time;
     if (adt > 0) {
